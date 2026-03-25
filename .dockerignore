@@ -1,0 +1,10 @@
+mobile/
+designs/
+ngrok/
+*.log
+*.zip
+*.pdf
+__pycache__/
+node_modules/
+.env
+.git/
