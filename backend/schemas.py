@@ -191,3 +191,20 @@ class LeaderboardEntry(BaseModel):
     iq_score: int = 0
     knowledge_rank: str = "Novice"
     rank_position: int = 0
+
+
+# ─── Moderation ────────────────────────────────────────────
+class ModerationResult(BaseModel):
+    safe: bool
+    violations: List[str] = []
+    warning_message: str = ""
+    strike_count: int = 0
+
+
+class ViolationResponse(BaseModel):
+    id: str
+    user_id: str
+    violation_type: str
+    content_type: str = ""
+    severity: str
+    created_at: str = ""

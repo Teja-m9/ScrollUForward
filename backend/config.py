@@ -21,11 +21,14 @@ COLLECTION_COMMENTS = "comments"  # Used for discussions
 COLLECTION_CONTENT_COMMENTS = "content_comments"
 COLLECTION_MESSAGES = "messages"
 COLLECTION_CHAT_ROOMS = "chat_rooms"
+COLLECTION_USER_VIOLATIONS = "user_violations"
 
 # ─── AI Agent Keys ─────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GOOGLE_AI_API_KEY = os.getenv("GOOGLE_AI_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
 NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
 
@@ -76,3 +79,8 @@ NEWS_RSS_FEEDS = {
 QUALITY_SCORE_THRESHOLD = 65
 BIAS_SCORE_THRESHOLD = 0.3
 DUPLICATE_COSINE_THRESHOLD = 0.92
+
+# ─── Content Moderation ──────────────────────────────────
+MODERATION_SCORE_THRESHOLD = 0.7   # OpenAI moderation category score to trigger rejection
+TEMP_BAN_HOURS = 24
+MAX_STRIKES_BEFORE_PERMANENT_BAN = 3

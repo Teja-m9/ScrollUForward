@@ -5,6 +5,8 @@ from auth import get_current_user
 from appwrite_client import get_databases
 from schemas import DiscussionCreate, DiscussionResponse, CommentCreate, CommentResponse
 from config import APPWRITE_DATABASE_ID, COLLECTION_DISCUSSIONS, COLLECTION_COMMENTS, COLLECTION_USERS
+from moderation import moderate_content, moderate_comment
+from strike_system import check_user_ban_status, record_violation
 import json
 
 router = APIRouter(prefix="/discussions", tags=["Discussions"])
@@ -14,6 +16,21 @@ router = APIRouter(prefix="/discussions", tags=["Discussions"])
 async def create_discussion(disc: DiscussionCreate, current_user: dict = Depends(get_current_user)):
     db = get_databases()
     doc_id = ID.unique()
+
+    # ─── Security Firewall ─────────────────────────────────
+    ban_status = await check_user_ban_status(current_user["sub"])
+    if not ban_status["allowed"]:
+        raise HTTPException(status_code=403, detail=ban_status["reason"])
+
+    mod_result = await moderate_content(title=disc.title, body=disc.description)
+    if not mod_result["safe"]:
+        violation_type = mod_result["violations"][0] if mod_result["violations"] else "policy_violation"
+        strike = await record_violation(
+            user_id=current_user["sub"], violation_type=violation_type,
+            details=mod_result.get("details", {}), content_type="discussion",
+            snippet=f"{disc.title}: {disc.description[:200]}",
+        )
+        raise HTTPException(status_code=400, detail=f"Discussion rejected: {', '.join(mod_result['violations'])}. {strike['message']}")
 
     try:
         author = db.get_document(
@@ -88,6 +105,21 @@ async def create_comment(
     current_user: dict = Depends(get_current_user)
 ):
     db = get_databases()
+
+    # ─── Security Firewall ─────────────────────────────────
+    ban_status = await check_user_ban_status(current_user["sub"])
+    if not ban_status["allowed"]:
+        raise HTTPException(status_code=403, detail=ban_status["reason"])
+
+    mod_result = await moderate_comment(comment.body)
+    if not mod_result["safe"]:
+        violation_type = mod_result["violations"][0] if mod_result["violations"] else "policy_violation"
+        strike = await record_violation(
+            user_id=current_user["sub"], violation_type=violation_type,
+            details=mod_result.get("details", {}), content_type="comment",
+            snippet=comment.body[:200],
+        )
+        raise HTTPException(status_code=400, detail=f"Comment rejected: {', '.join(mod_result['violations'])}. {strike['message']}")
 
     try:
         author = db.get_document(

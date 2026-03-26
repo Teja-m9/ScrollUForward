@@ -5,6 +5,8 @@ from auth import get_current_user
 from appwrite_client import get_databases
 from schemas import ChatRoomCreate, ChatRoomResponse, MessageCreate, MessageResponse
 from config import APPWRITE_DATABASE_ID, COLLECTION_CHAT_ROOMS, COLLECTION_MESSAGES, COLLECTION_USERS
+from moderation import moderate_comment
+from strike_system import check_user_ban_status, record_violation
 import json
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -60,6 +62,21 @@ async def list_chat_rooms(current_user: dict = Depends(get_current_user)):
 async def send_message(msg: MessageCreate, current_user: dict = Depends(get_current_user)):
     db = get_databases()
     doc_id = ID.unique()
+
+    # ─── Security Firewall (text only for chat) ────────────
+    ban_status = await check_user_ban_status(current_user["sub"])
+    if not ban_status["allowed"]:
+        raise HTTPException(status_code=403, detail=ban_status["reason"])
+
+    mod_result = await moderate_comment(msg.body)
+    if not mod_result["safe"]:
+        violation_type = mod_result["violations"][0] if mod_result["violations"] else "policy_violation"
+        await record_violation(
+            user_id=current_user["sub"], violation_type=violation_type,
+            details=mod_result.get("details", {}), content_type="message",
+            snippet=msg.body[:200],
+        )
+        raise HTTPException(status_code=400, detail="Message blocked for policy violation.")
 
     try:
         # Get sender info

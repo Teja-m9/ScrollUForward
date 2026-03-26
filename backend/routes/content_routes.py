@@ -7,6 +7,8 @@ from schemas import ContentCreate, ContentResponse, InteractionCreate, ContentCo
 from config import APPWRITE_DATABASE_ID, COLLECTION_CONTENT, COLLECTION_INTERACTIONS, COLLECTION_USERS, COLLECTION_CONTENT_COMMENTS
 from s3_client import get_s3_client, PRESIGN_EXPIRY
 from config import AWS_S3_BUCKET
+from moderation import moderate_content, moderate_comment
+from strike_system import check_user_ban_status, record_violation
 import json
 import re
 import logging
@@ -21,7 +23,35 @@ async def create_content(content: ContentCreate, current_user: dict = Depends(ge
     db = get_databases()
     doc_id = ID.unique()
 
-    # Editorial Gate — basic quality checks
+    # ─── Security Firewall ─────────────────────────────────
+    # 1. Ban check
+    ban_status = await check_user_ban_status(current_user["sub"])
+    if not ban_status["allowed"]:
+        raise HTTPException(status_code=403, detail=ban_status["reason"])
+
+    # 2. Content moderation (text + image/video in parallel)
+    mod_result = await moderate_content(
+        title=content.title,
+        body=content.body,
+        media_url=content.media_url,
+        thumbnail_url=content.thumbnail_url,
+    )
+    if not mod_result["safe"]:
+        # Record strike and escalate
+        violation_type = mod_result["violations"][0] if mod_result["violations"] else "policy_violation"
+        strike = await record_violation(
+            user_id=current_user["sub"],
+            violation_type=violation_type,
+            details=mod_result.get("details", {}),
+            content_type=content.content_type,
+            snippet=f"{content.title}: {content.body[:200]}",
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Content rejected: {', '.join(mod_result['violations'])}. {strike['message']}"
+        )
+
+    # ─── Editorial Gate — basic quality checks ─────────────
     quality_score = 80
     if len(content.body) < 50:
         quality_score -= 20
@@ -256,6 +286,27 @@ async def add_content_comment(
     current_user: dict = Depends(get_current_user)
 ):
     db = get_databases()
+
+    # ─── Security Firewall ─────────────────────────────────
+    ban_status = await check_user_ban_status(current_user["sub"])
+    if not ban_status["allowed"]:
+        raise HTTPException(status_code=403, detail=ban_status["reason"])
+
+    mod_result = await moderate_comment(comment.body)
+    if not mod_result["safe"]:
+        violation_type = mod_result["violations"][0] if mod_result["violations"] else "policy_violation"
+        strike = await record_violation(
+            user_id=current_user["sub"],
+            violation_type=violation_type,
+            details=mod_result.get("details", {}),
+            content_type="comment",
+            snippet=comment.body[:200],
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Comment rejected: {', '.join(mod_result['violations'])}. {strike['message']}"
+        )
+
     # Get user to attach avatar/username
     try:
         user = db.get_document(

@@ -199,6 +199,27 @@ def setup():
     add_index("messages", "idx_room", "key", ["chat_room_id"])
     add_index("messages", "idx_sender", "key", ["sender_id"])
 
+    # ─── User Violations Collection ──────────────────────
+    print("[+] Creating User Violations collection...")
+    create_collection("user_violations", "User Violations")
+    time.sleep(1)
+    add_string("user_violations", "user_id", 50, True)
+    add_string("user_violations", "violation_type", 50, True)
+    add_string("user_violations", "violation_details", 2000)
+    add_string("user_violations", "content_type", 20)
+    add_string("user_violations", "content_snippet", 500)
+    add_string("user_violations", "severity", 20, True)
+    add_int("user_violations", "created_at_unix")
+    time.sleep(2)
+    add_index("user_violations", "idx_user", "key", ["user_id"])
+    add_index("user_violations", "idx_severity", "key", ["user_id", "severity"])
+
+    # ─── Add moderation fields to Users ──────────────────
+    print("[+] Adding moderation fields to Users...")
+    add_int("users", "strike_count")
+    add_bool("users", "is_banned")
+    add_string("users", "ban_until", 50)
+
     print("\n[OK] All collections set up successfully!")
     print("[*] Run 'python seed.py' next to add demo data.")
 
