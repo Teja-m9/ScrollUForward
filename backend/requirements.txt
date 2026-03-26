@@ -16,8 +16,8 @@ google-generativeai>=0.4.0
 
 # TTS (Deepgram Aura-2 via REST — no SDK needed, uses httpx)
 
-# Manim CE — animation engine for reel generation
-manim>=0.20.0
+# Manim CE — animation engine for reel generation (local only, not on Railway)
+# manim>=0.20.0
 
 # AWS S3
 boto3>=1.34.0
