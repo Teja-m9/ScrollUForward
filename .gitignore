@@ -31,3 +31,4 @@ desktop.ini
 # Temp
 /tmp/
 *.tmp
+backend/scenes/media/
