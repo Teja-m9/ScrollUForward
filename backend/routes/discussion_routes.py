@@ -1,13 +1,16 @@
 from fastapi import APIRouter, HTTPException, Depends, Query as QueryParam
 from appwrite.query import Query
 from appwrite.id import ID
+from pydantic import BaseModel
 from auth import get_current_user
 from appwrite_client import get_databases
 from schemas import DiscussionCreate, DiscussionResponse, CommentCreate, CommentResponse
 from config import APPWRITE_DATABASE_ID, COLLECTION_DISCUSSIONS, COLLECTION_COMMENTS, COLLECTION_USERS
 from moderation import moderate_content, moderate_comment
 from strike_system import check_user_ban_status, record_violation
-import json
+import json, os, logging
+
+logger = logging.getLogger("scrolluforward")
 
 router = APIRouter(prefix="/discussions", tags=["Discussions"])
 
@@ -207,3 +210,65 @@ def _doc_to_comment(doc: dict) -> CommentResponse:
         likes_count=doc.get("likes_count", 0),
         created_at=doc.get("$createdAt", ""),
     )
+
+
+# ─── AI Discussion Assistant ──────────────────────────
+
+class AIChatRequest(BaseModel):
+    message: str
+    topic: str = ""
+    domain: str = ""
+    history: list = []
+
+
+class AIChatResponse(BaseModel):
+    reply: str
+    username: str = "ScrollU AI"
+
+
+@router.post("/ai/chat", response_model=AIChatResponse)
+async def ai_discussion_chat(req: AIChatRequest):
+    """AI assistant for discussion rooms — answers questions, debates, explains."""
+    try:
+        from groq import Groq
+        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+        # Build conversation history
+        messages = [
+            {"role": "system", "content": (
+                "You are ScrollU AI, a brilliant and friendly educational discussion assistant. "
+                "You participate in academic discussion rooms on the ScrollUForward app. "
+                f"Current topic: {req.topic or 'General'}. Domain: {req.domain or 'General'}. "
+                "Rules: "
+                "- Give insightful, well-reasoned responses "
+                "- Cite facts and explain complex ideas simply "
+                "- Be engaging and conversational, not robotic "
+                "- Ask thought-provoking follow-up questions "
+                "- Keep responses concise (2-4 sentences) "
+                "- Use analogies and examples "
+                "- If you disagree, do so respectfully with evidence "
+                "- Add a fun fact or surprising insight when relevant"
+            )}
+        ]
+
+        # Add conversation history (last 6 messages)
+        for h in (req.history or [])[-6:]:
+            role = "assistant" if h.get("isAI") else "user"
+            messages.append({"role": role, "content": h.get("text", "")})
+
+        messages.append({"role": "user", "content": req.message})
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.8,
+            max_tokens=300,
+        )
+
+        reply = response.choices[0].message.content.strip()
+        logger.info(f"[AI Discussion] Reply: {reply[:80]}...")
+        return AIChatResponse(reply=reply)
+
+    except Exception as e:
+        logger.error(f"[AI Discussion] Error: {e}")
+        return AIChatResponse(reply="Hmm, I'm having trouble thinking right now. Could you rephrase that?")
