@@ -182,6 +182,19 @@ async def list_comments(discussion_id: str, limit: int = QueryParam(50)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _parse_tags(raw):
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+    # Fallback: comma-separated string
+    return [t.strip() for t in str(raw).split(",") if t.strip()]
+
+
 def _doc_to_discussion(doc: dict) -> DiscussionResponse:
     return DiscussionResponse(
         id=doc["$id"],
@@ -191,7 +204,7 @@ def _doc_to_discussion(doc: dict) -> DiscussionResponse:
         creator_id=doc.get("creator_id", ""),
         creator_username=doc.get("creator_username", ""),
         creator_avatar=doc.get("creator_avatar", ""),
-        tags=json.loads(doc.get("tags", "[]")),
+        tags=_parse_tags(doc.get("tags", "[]")),
         comments_count=doc.get("comments_count", 0),
         participants_count=doc.get("participants_count", 0),
         created_at=doc.get("$createdAt", ""),
