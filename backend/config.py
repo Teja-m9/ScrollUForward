@@ -12,6 +12,11 @@ JWT_SECRET = os.getenv("JWT_SECRET", "scrolluforward-secret-key-change-me")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 72
 
+# ─── Google OAuth ─────────────────────────────────────────
+GOOGLE_CLIENT_ID_WEB = os.getenv("GOOGLE_CLIENT_ID_WEB", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_CLIENT_ID_ANDROID = os.getenv("GOOGLE_CLIENT_ID_ANDROID", "")
+
 # Collection IDs
 COLLECTION_USERS = "users"
 COLLECTION_CONTENT = "content"
