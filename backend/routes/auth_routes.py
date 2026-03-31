@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query as QueryParam
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from appwrite.query import Query
 from appwrite.id import ID
@@ -272,4 +273,117 @@ async def google_auth(req: GoogleAuthRequest):
         access_token=token,
         user_id=user_id,
         username=username,
+    )
+
+
+@router.get("/google/callback")
+async def google_callback(code: str = QueryParam(...)):
+    """Google OAuth callback — exchanges code and redirects back to app with token."""
+    from config import GOOGLE_CLIENT_SECRET
+    redirect_uri = "https://scrolluforward-production.up.railway.app/auth/google/callback"
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # Exchange code for tokens
+            token_resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": GOOGLE_CLIENT_ID_WEB,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "redirect_uri": redirect_uri,
+                    "grant_type": "authorization_code",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            if token_resp.status_code != 200:
+                logger.error(f"[GoogleCallback] Token exchange failed: {token_resp.text}")
+                return RedirectResponse(url=f"scrolluforward://auth?error=token_exchange_failed")
+
+            tokens = token_resp.json()
+            id_token = tokens.get("id_token", "")
+
+            # Verify id_token
+            info_resp = await client.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}")
+            if info_resp.status_code != 200:
+                return RedirectResponse(url=f"scrolluforward://auth?error=invalid_token")
+
+            google_user = info_resp.json()
+
+    except Exception as e:
+        logger.error(f"[GoogleCallback] Error: {e}")
+        return RedirectResponse(url=f"scrolluforward://auth?error=server_error")
+
+    email = google_user.get("email", "")
+    name = google_user.get("name", "")
+    picture = google_user.get("picture", "")
+    google_sub = google_user.get("sub", "")
+
+    if not email:
+        return RedirectResponse(url=f"scrolluforward://auth?error=no_email")
+
+    db = get_databases()
+
+    # Check if user exists
+    try:
+        existing = db.list_documents(
+            database_id=APPWRITE_DATABASE_ID,
+            collection_id=COLLECTION_USERS,
+            queries=[Query.equal("email", email)]
+        )
+        if existing["total"] > 0:
+            user = existing["documents"][0]
+            jwt_token = create_access_token(user["$id"], user["username"])
+            logger.info(f"[GoogleCallback] Login: {email}")
+            return RedirectResponse(
+                url=f"scrolluforward://auth?token={jwt_token}&user_id={user['$id']}&username={user['username']}"
+            )
+    except Exception as e:
+        logger.error(f"[GoogleCallback] DB error: {e}")
+
+    # Create new user
+    user_id = ID.unique()
+    username = email.split("@")[0].replace(".", "_").lower()[:20]
+
+    try:
+        uname_check = db.list_documents(
+            database_id=APPWRITE_DATABASE_ID,
+            collection_id=COLLECTION_USERS,
+            queries=[Query.equal("username", username)]
+        )
+        if uname_check["total"] > 0:
+            username = username + "_" + google_sub[-4:]
+    except Exception:
+        pass
+
+    try:
+        db.create_document(
+            database_id=APPWRITE_DATABASE_ID,
+            collection_id=COLLECTION_USERS,
+            document_id=user_id,
+            data={
+                "username": username,
+                "email": email,
+                "password_hash": "",
+                "display_name": name or username,
+                "bio": "",
+                "avatar_url": picture,
+                "iq_score": 0,
+                "knowledge_rank": "Novice",
+                "interest_tags": json.dumps([]),
+                "followers_count": 0,
+                "following_count": 0,
+                "posts_count": 0,
+                "streak_days": 0,
+                "badges": json.dumps(["google_user"]),
+            }
+        )
+        logger.info(f"[GoogleCallback] New user: {email} -> {username}")
+    except Exception as e:
+        logger.error(f"[GoogleCallback] Create user failed: {e}")
+        return RedirectResponse(url=f"scrolluforward://auth?error=create_failed")
+
+    jwt_token = create_access_token(user_id, username)
+    return RedirectResponse(
+        url=f"scrolluforward://auth?token={jwt_token}&user_id={user_id}&username={username}"
     )
