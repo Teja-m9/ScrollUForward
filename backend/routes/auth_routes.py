@@ -286,17 +286,34 @@ async def google_callback(code: str = QueryParam(None), id_token: str = QueryPar
         # Google implicit flow sends id_token in URL fragment (#id_token=...)
         # Fragments aren't sent to server, so serve JS that reads it and redirects
         return HTMLResponse(content="""
-        <html><body><script>
+        <html><head><style>
+        body{background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;flex-direction:column}
+        .spinner{width:40px;height:40px;border:4px solid #333;border-top:4px solid #AAFF00;border-radius:50%;animation:spin 1s linear infinite}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        p{margin-top:20px;color:#888}
+        .success{color:#AAFF00;font-size:18px;margin-top:20px}
+        </style></head><body>
+        <div class="spinner"></div>
+        <p id="status">Signing you in...</p>
+        <script>
         var hash = window.location.hash.substring(1);
         var params = new URLSearchParams(hash);
         var idToken = params.get('id_token');
         if (idToken) {
+            document.getElementById('status').innerHTML = '<span class="success">✓ Authenticated! Redirecting to app...</span>';
             window.location.href = 'scrolluforward://auth?id_token=' + idToken;
+            setTimeout(function(){
+                document.getElementById('status').innerHTML = '<span class="success">✓ Success! Open ScrollUForward app on your phone.</span><br><br><small style="color:#555">If the app didn\\'t open, copy this and use in the app.</small>';
+            }, 2000);
         } else {
             var q = window.location.search;
-            window.location.href = 'scrolluforward://auth' + q;
+            if (q) {
+                window.location.href = 'scrolluforward://auth' + q;
+            } else {
+                document.getElementById('status').textContent = 'Waiting for Google...';
+            }
         }
-        </script><p>Signing you in...</p></body></html>
+        </script></body></html>
         """)
 
     redirect_uri = "https://scrolluforward-production.up.railway.app/auth/google/callback"
