@@ -277,9 +277,63 @@ async def google_auth(req: GoogleAuthRequest):
 
 
 @router.get("/google/callback")
-async def google_callback(code: str = QueryParam(...)):
-    """Google OAuth callback — exchanges code and redirects back to app with token."""
+async def google_callback(code: str = QueryParam(None), id_token: str = QueryParam(None)):
+    """Google OAuth callback — handles both code exchange and id_token implicit flow."""
+    from fastapi.responses import HTMLResponse
+
+    # If no code and no id_token in query, serve a page that reads the fragment
+    if not code and not id_token:
+        # Google implicit flow sends id_token in URL fragment (#id_token=...)
+        # Fragments aren't sent to server, so serve JS that reads it and redirects
+        return HTMLResponse(content="""
+        <html><body><script>
+        var hash = window.location.hash.substring(1);
+        var params = new URLSearchParams(hash);
+        var idToken = params.get('id_token');
+        if (idToken) {
+            window.location.href = 'scrolluforward://auth?id_token=' + idToken;
+        } else {
+            var q = window.location.search;
+            window.location.href = 'scrolluforward://auth' + q;
+        }
+        </script><p>Signing you in...</p></body></html>
+        """)
+
     redirect_uri = "https://scrolluforward-production.up.railway.app/auth/google/callback"
+
+    # If we got an id_token directly, verify and create user
+    if id_token:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                info_resp = await client.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}")
+                if info_resp.status_code == 200:
+                    google_user = info_resp.json()
+                    # Process user (reuse logic below)
+                    email = google_user.get("email", "")
+                    name = google_user.get("name", "")
+                    picture = google_user.get("picture", "")
+                    google_sub = google_user.get("sub", "")
+                    if email:
+                        db = get_databases()
+                        existing = db.list_documents(APPWRITE_DATABASE_ID, COLLECTION_USERS, queries=[Query.equal("email", email)])
+                        if existing["total"] > 0:
+                            user = existing["documents"][0]
+                            jwt_token = create_access_token(user["$id"], user["username"])
+                            return RedirectResponse(url=f"scrolluforward://auth?token={jwt_token}&user_id={user['$id']}&username={user['username']}")
+                        # Create new user
+                        user_id = ID.unique()
+                        username = email.split("@")[0].replace(".", "_").lower()[:20]
+                        db.create_document(APPWRITE_DATABASE_ID, COLLECTION_USERS, document_id=user_id, data={
+                            "username": username, "email": email, "password_hash": "", "display_name": name or username,
+                            "bio": "", "avatar_url": picture, "iq_score": 0, "knowledge_rank": "Novice",
+                            "interest_tags": json.dumps([]), "followers_count": 0, "following_count": 0,
+                            "posts_count": 0, "streak_days": 0, "badges": json.dumps(["google_user"]),
+                        })
+                        jwt_token = create_access_token(user_id, username)
+                        return RedirectResponse(url=f"scrolluforward://auth?token={jwt_token}&user_id={user_id}&username={username}")
+        except Exception as e:
+            logger.error(f"[GoogleCallback] id_token processing failed: {e}")
+        return RedirectResponse(url="scrolluforward://auth?error=token_verification_failed")
 
     logger.info(f"[GoogleCallback] Got code={code[:10]}..., client_id={GOOGLE_CLIENT_ID_WEB[:20]}..., secret={'SET' if GOOGLE_CLIENT_SECRET else 'EMPTY'}")
 
