@@ -6,7 +6,7 @@ from appwrite.id import ID
 from auth import hash_password, verify_password, create_access_token, get_current_user
 from appwrite_client import get_databases
 from schemas import RegisterRequest, LoginRequest, TokenResponse
-from config import APPWRITE_DATABASE_ID, COLLECTION_USERS, GOOGLE_CLIENT_ID_WEB, GOOGLE_CLIENT_ID_ANDROID
+from config import APPWRITE_DATABASE_ID, COLLECTION_USERS, GOOGLE_CLIENT_ID_WEB, GOOGLE_CLIENT_ID_ANDROID, GOOGLE_CLIENT_SECRET
 import json, httpx, logging
 
 logger = logging.getLogger("scrolluforward")
@@ -279,8 +279,9 @@ async def google_auth(req: GoogleAuthRequest):
 @router.get("/google/callback")
 async def google_callback(code: str = QueryParam(...)):
     """Google OAuth callback — exchanges code and redirects back to app with token."""
-    from config import GOOGLE_CLIENT_SECRET
     redirect_uri = "https://scrolluforward-production.up.railway.app/auth/google/callback"
+
+    logger.info(f"[GoogleCallback] Got code, client_id={GOOGLE_CLIENT_ID_WEB[:20]}..., secret={'SET' if GOOGLE_CLIENT_SECRET else 'EMPTY'}")
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -297,8 +298,9 @@ async def google_callback(code: str = QueryParam(...)):
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             if token_resp.status_code != 200:
-                logger.error(f"[GoogleCallback] Token exchange failed: {token_resp.text}")
-                return RedirectResponse(url=f"scrolluforward://auth?error=token_exchange_failed")
+                err_detail = token_resp.text[:200]
+                logger.error(f"[GoogleCallback] Token exchange failed ({token_resp.status_code}): {err_detail}")
+                return RedirectResponse(url=f"scrolluforward://auth?error=token_exchange_failed&detail={token_resp.status_code}")
 
             tokens = token_resp.json()
             id_token = tokens.get("id_token", "")
