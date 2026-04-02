@@ -281,10 +281,10 @@ async def google_callback(code: str = QueryParam(...)):
     """Google OAuth callback — exchanges code and redirects back to app with token."""
     redirect_uri = "https://scrolluforward-production.up.railway.app/auth/google/callback"
 
-    logger.info(f"[GoogleCallback] Got code, client_id={GOOGLE_CLIENT_ID_WEB[:20]}..., secret={'SET' if GOOGLE_CLIENT_SECRET else 'EMPTY'}")
+    logger.info(f"[GoogleCallback] Got code={code[:10]}..., client_id={GOOGLE_CLIENT_ID_WEB[:20]}..., secret={'SET' if GOOGLE_CLIENT_SECRET else 'EMPTY'}")
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             # Exchange code for tokens
             token_resp = await client.post(
                 "https://oauth2.googleapis.com/token",
