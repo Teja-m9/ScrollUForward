@@ -232,6 +232,8 @@ class AIChatRequest(BaseModel):
     topic: str = ""
     domain: str = ""
     history: list = []
+    discussion_id: str = ""   # if set, persists both user msg + AI reply to DB
+    user_id: str = ""         # the sender's user ID for persistence
 
 
 class AIChatResponse(BaseModel):
@@ -241,7 +243,8 @@ class AIChatResponse(BaseModel):
 
 @router.post("/ai/chat", response_model=AIChatResponse)
 async def ai_discussion_chat(req: AIChatRequest):
-    """AI assistant for discussion rooms — answers questions, debates, explains."""
+    """AI assistant for discussion rooms — answers questions, debates, explains.
+    If discussion_id is provided, persists the AI reply to the comments collection."""
     try:
         from groq import Groq
         client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -280,8 +283,89 @@ async def ai_discussion_chat(req: AIChatRequest):
 
         reply = response.choices[0].message.content.strip()
         logger.info(f"[AI Discussion] Reply: {reply[:80]}...")
+
+        # ── Persist AI reply to DB if discussion_id provided ──────────────
+        if req.discussion_id:
+            try:
+                db = get_databases()
+                db.create_document(
+                    database_id=APPWRITE_DATABASE_ID,
+                    collection_id=COLLECTION_COMMENTS,
+                    document_id=ID.unique(),
+                    data={
+                        "discussion_id": req.discussion_id,
+                        "user_id": "scrollu_ai",
+                        "username": "ScrollU AI",
+                        "avatar_url": "",
+                        "body": reply,
+                        "citation_url": "",
+                        "likes_count": 0,
+                    }
+                )
+                # Bump comments_count on the discussion
+                try:
+                    disc = db.get_document(APPWRITE_DATABASE_ID, COLLECTION_DISCUSSIONS, req.discussion_id)
+                    db.update_document(APPWRITE_DATABASE_ID, COLLECTION_DISCUSSIONS, req.discussion_id,
+                                       data={"comments_count": disc.get("comments_count", 0) + 1})
+                except Exception:
+                    pass
+            except Exception as persist_err:
+                logger.warning(f"[AI Discussion] Failed to persist reply: {persist_err}")
+
         return AIChatResponse(reply=reply)
 
     except Exception as e:
         logger.error(f"[AI Discussion] Error: {e}")
         return AIChatResponse(reply="Hmm, I'm having trouble thinking right now. Could you rephrase that?")
+
+
+# ─── User Discussion History ───────────────────────────
+
+@router.get("/user/{user_id}/history")
+async def get_user_discussion_history(user_id: str):
+    """Return all discussion rooms a user participated in, with full message history."""
+    db = get_databases()
+    try:
+        # 1. Find all comments by this user
+        user_comments = db.list_documents(
+            database_id=APPWRITE_DATABASE_ID,
+            collection_id=COLLECTION_COMMENTS,
+            queries=[
+                Query.equal("user_id", user_id),
+                Query.order_desc("$createdAt"),
+                Query.limit(200),
+            ]
+        )
+        # 2. Unique discussion IDs (preserve order — most recent first)
+        seen = set()
+        disc_ids = []
+        for c in user_comments["documents"]:
+            did = c.get("discussion_id", "")
+            if did and did not in seen:
+                seen.add(did)
+                disc_ids.append(did)
+
+        # 3. For each discussion, fetch details + full message thread
+        result = []
+        for disc_id in disc_ids[:20]:
+            try:
+                disc = db.get_document(APPWRITE_DATABASE_ID, COLLECTION_DISCUSSIONS, disc_id)
+                all_comments = db.list_documents(
+                    database_id=APPWRITE_DATABASE_ID,
+                    collection_id=COLLECTION_COMMENTS,
+                    queries=[
+                        Query.equal("discussion_id", disc_id),
+                        Query.order_asc("$createdAt"),
+                        Query.limit(200),
+                    ]
+                )
+                result.append({
+                    "discussion": _doc_to_discussion(disc),
+                    "messages": [_doc_to_comment(c) for c in all_comments["documents"]],
+                })
+            except Exception:
+                continue
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

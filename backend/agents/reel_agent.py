@@ -452,7 +452,7 @@ def assemble_reel(video_path: str, audio_path: str, output_path: str) -> str:
         "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
     ])
     if has_audio:
-        cmd.extend(["-c:a", "aac", "-shortest"])
+        cmd.extend(["-strict", "-2", "-c:a", "aac", "-shortest"])
     cmd.append(output_path)
 
     try:

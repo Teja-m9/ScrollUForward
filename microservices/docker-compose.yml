@@ -1,0 +1,199 @@
+version: "3.9"
+
+# ── Shared environment (inherited by all services) ─────────────────────────
+x-common-env: &common-env
+  APPWRITE_ENDPOINT: ${APPWRITE_ENDPOINT:-https://cloud.appwrite.io/v1}
+  APPWRITE_PROJECT_ID: ${APPWRITE_PROJECT_ID}
+  APPWRITE_API_KEY: ${APPWRITE_API_KEY}
+  APPWRITE_DATABASE_ID: ${APPWRITE_DATABASE_ID:-scrolluforward_db}
+  JWT_SECRET: ${JWT_SECRET:-scrolluforward-secret-change-me}
+  REDIS_URL: redis://redis:6379/0
+  GROQ_API_KEY: ${GROQ_API_KEY}
+  GOOGLE_AI_API_KEY: ${GOOGLE_AI_API_KEY}
+  DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+  S3_SECRET_KEY: ${S3_SECRET_KEY}
+  AWS_S3_BUCKET: ${AWS_S3_BUCKET:-scrolluforward-media}
+  S3_REGION: ${S3_REGION:-ap-south-1}
+  NEWSAPI_KEY: ${NEWSAPI_KEY}
+  # Internal service URLs (Docker internal DNS)
+  AUTH_SERVICE_URL: http://auth:8001
+  CONTENT_SERVICE_URL: http://content:8002
+  DISCUSSION_SERVICE_URL: http://discussion:8003
+  USER_SERVICE_URL: http://user:8004
+  CHAT_SERVICE_URL: http://chat:8005
+  AI_WORKER_SERVICE_URL: http://ai_worker:8006
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks:
+    - scrollu-net
+  build:
+    context: ..   # repo root (so COPY paths work correctly)
+  depends_on:
+    redis:
+      condition: service_healthy
+
+services:
+
+  # ── Redis ────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: scrollu-redis
+    restart: unless-stopped
+    networks:
+      - scrollu-net
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis-data:/data
+    command: redis-server --save 60 1 --loglevel warning
+
+  # ── API Gateway ──────────────────────────────────────────────────────────
+  gateway:
+    <<: *service-defaults
+    container_name: scrollu-gateway
+    build:
+      context: ..
+      dockerfile: microservices/gateway/Dockerfile
+    environment:
+      <<: *common-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      content:
+        condition: service_started
+      discussion:
+        condition: service_started
+      user:
+        condition: service_started
+      chat:
+        condition: service_started
+      ai_worker:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Auth Service ─────────────────────────────────────────────────────────
+  auth:
+    <<: *service-defaults
+    container_name: scrollu-auth
+    build:
+      context: ..
+      dockerfile: microservices/services/auth/Dockerfile
+    environment:
+      <<: *common-env
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/auth/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Content Service ──────────────────────────────────────────────────────
+  content:
+    <<: *service-defaults
+    container_name: scrollu-content
+    build:
+      context: ..
+      dockerfile: microservices/services/content/Dockerfile
+    environment:
+      <<: *common-env
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/content/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Discussion Service ───────────────────────────────────────────────────
+  discussion:
+    <<: *service-defaults
+    container_name: scrollu-discussion
+    build:
+      context: ..
+      dockerfile: microservices/services/discussion/Dockerfile
+    environment:
+      <<: *common-env
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/discussions/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── User Service ─────────────────────────────────────────────────────────
+  user:
+    <<: *service-defaults
+    container_name: scrollu-user
+    build:
+      context: ..
+      dockerfile: microservices/services/user/Dockerfile
+    environment:
+      <<: *common-env
+    ports:
+      - "8004:8004"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/users/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Chat Service ─────────────────────────────────────────────────────────
+  chat:
+    <<: *service-defaults
+    container_name: scrollu-chat
+    build:
+      context: ..
+      dockerfile: microservices/services/chat/Dockerfile
+    environment:
+      <<: *common-env
+    ports:
+      - "8005:8005"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/chat/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── AI Worker Service ─────────────────────────────────────────────────────
+  ai_worker:
+    <<: *service-defaults
+    container_name: scrollu-ai-worker
+    build:
+      context: ..
+      dockerfile: microservices/services/ai_worker/Dockerfile
+    environment:
+      <<: *common-env
+    ports:
+      - "8006:8006"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/ai/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+# ── Networks & Volumes ────────────────────────────────────────────────────
+networks:
+  scrollu-net:
+    driver: bridge
+
+volumes:
+  redis-data:
