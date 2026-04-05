@@ -186,6 +186,42 @@ async def follow_user(user_id: str, current_user: dict = Depends(get_current_use
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/{user_id}/follow")
+async def unfollow_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    db = get_databases()
+    if user_id == current_user["sub"]:
+        raise HTTPException(status_code=400, detail="Cannot unfollow yourself")
+
+    try:
+        target = db.get_document(
+            database_id=APPWRITE_DATABASE_ID,
+            collection_id=COLLECTION_USERS,
+            document_id=user_id
+        )
+        db.update_document(
+            database_id=APPWRITE_DATABASE_ID,
+            collection_id=COLLECTION_USERS,
+            document_id=user_id,
+            data={"followers_count": max(0, target.get("followers_count", 0) - 1)}
+        )
+
+        me = db.get_document(
+            database_id=APPWRITE_DATABASE_ID,
+            collection_id=COLLECTION_USERS,
+            document_id=current_user["sub"]
+        )
+        db.update_document(
+            database_id=APPWRITE_DATABASE_ID,
+            collection_id=COLLECTION_USERS,
+            document_id=current_user["sub"],
+            data={"following_count": max(0, me.get("following_count", 0) - 1)}
+        )
+
+        return {"status": "unfollowed", "user_id": user_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def _calculate_rank(iq_score: int) -> str:
     if iq_score >= 5000:
         return "Grandmaster"
