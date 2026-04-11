@@ -220,6 +220,59 @@ async def interact_with_content(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/saved")
+async def get_saved_content(
+    limit: int = QueryParam(50),
+    current_user: dict = Depends(get_current_user),
+):
+    """Return all content the current user has saved."""
+    db = get_databases()
+    try:
+        # Fetch save interactions for this user
+        interactions = db.list_documents(
+            database_id=APPWRITE_DATABASE_ID,
+            collection_id=COLLECTION_INTERACTIONS,
+            queries=[
+                Query.equal("user_id", current_user["sub"]),
+                Query.equal("interaction_type", "save"),
+                Query.order_desc("$createdAt"),
+                Query.limit(limit),
+            ],
+        )
+        content_ids = list(dict.fromkeys(
+            doc["content_id"] for doc in interactions.get("documents", []) if doc.get("content_id")
+        ))
+        if not content_ids:
+            return []
+
+        # Fetch the actual content documents
+        results = []
+        for cid in content_ids:
+            try:
+                doc = db.get_document(APPWRITE_DATABASE_ID, COLLECTION_CONTENT, cid)
+                results.append({
+                    "id": doc["$id"],
+                    "title": doc.get("title", ""),
+                    "body": doc.get("body", ""),
+                    "content_type": doc.get("content_type", ""),
+                    "domain": doc.get("domain", ""),
+                    "author_id": doc.get("author_id", ""),
+                    "author_username": doc.get("author_username", ""),
+                    "thumbnail_url": doc.get("thumbnail_url", ""),
+                    "media_url": doc.get("media_url", ""),
+                    "likes_count": doc.get("likes_count", 0),
+                    "saves_count": doc.get("saves_count", 0),
+                    "views_count": doc.get("views_count", 0),
+                    "comments_count": doc.get("comments_count", 0),
+                    "quality_score": doc.get("quality_score", 0),
+                })
+            except Exception:
+                continue
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/feed/personalized")
 async def get_personalized_feed(
     limit: int = QueryParam(20),
