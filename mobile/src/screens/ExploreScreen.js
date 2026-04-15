@@ -8,6 +8,8 @@ import { ThemeContext } from '../../App';
 import { AuthContext } from '../../App';
 import { contentAPI, usersAPI } from '../api';
 import { Tape, Stamp, SketchCard, DoodleDivider, PencilLine, PageHeader, StickerBadge } from '../components/SketchComponents';
+import { SkeletonCard, EmptyState, FadeInView, StaggeredItem } from '../components/AnimatedComponents';
+import { InkRippleButton, FloatingParticles, TypewriterText } from '../components/PremiumAnimations';
 
 const { width } = Dimensions.get('window');
 const ACCENT = '#F9D84A';
@@ -204,7 +206,7 @@ export default function ExploreScreen({ navigation }) {
         {featured && (
           <>
             {/* Featured card — sketch style */}
-            <TouchableOpacity style={s.featuredCard} activeOpacity={0.9} onPress={() => navigateToContent(featured)}>
+            <InkRippleButton style={s.featuredCard} activeOpacity={0.9} onPress={() => navigateToContent(featured)}>
               <Tape color="blue" style={{ left: 30 }} />
               <Image source={{ uri: getImage(featured, 0) }} style={s.featuredImg} />
               <View style={s.featuredOverlay}>
@@ -217,14 +219,14 @@ export default function ExploreScreen({ navigation }) {
                   <Text style={s.featuredMetaText}>@{featured.author_username || 'author'}</Text>
                 </View>
               </View>
-            </TouchableOpacity>
+            </InkRippleButton>
 
             {/* Content grid — 2 columns */}
             <View style={s.grid}>
               {gridItems.map((item, i) => {
                 const dc = DOMAIN_COLORS[item.domain] || ACCENT;
                 return (
-                  <TouchableOpacity key={item.id || i} style={s.gridCard} activeOpacity={0.85} onPress={() => navigateToContent(item)}>
+                  <StaggeredItem key={item.id || i} index={i}><TouchableOpacity style={s.gridCard} activeOpacity={0.85} onPress={() => navigateToContent(item)}>
                     <Tape color={i % 3 === 0 ? 'blue' : i % 3 === 1 ? 'yellow' : 'purple'} style={{ left: 15, width: 40 }} />
                     <Image source={{ uri: getImage(item, i + 1) }} style={s.gridImg} />
                     <View style={s.gridCardBody}>
@@ -235,7 +237,7 @@ export default function ExploreScreen({ navigation }) {
                         {item.content_type === 'reel' && <Ionicons name="play-circle" size={12} color="#8A7860" />}
                       </View>
                     </View>
-                  </TouchableOpacity>
+                  </TouchableOpacity></StaggeredItem>
                 );
               })}
             </View>
@@ -249,6 +251,7 @@ export default function ExploreScreen({ navigation }) {
     <View style={s.container}>
       {/* Notebook margin line */}
       <View style={{ position: 'absolute', left: 14, top: 0, bottom: 0, width: 1.5, backgroundColor: 'rgba(200,55,55,0.08)', zIndex: 0 }} pointerEvents="none" />
+      <FloatingParticles count={5} />
       <StatusBar barStyle="dark-content" backgroundColor="#FBF8F0" />
 
       {/* Header — notebook style with decorative dots */}
@@ -332,7 +335,15 @@ export default function ExploreScreen({ navigation }) {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-        {(loading || searching) && <ActivityIndicator color={ACCENT} size="large" style={{ marginTop: 40 }} />}
+        {(loading || searching) && (
+          <View style={{ paddingHorizontal: 16, marginTop: 20 }}>
+            <SkeletonCard style={{ height: 200, marginBottom: 16 }} />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <SkeletonCard style={{ width: (width - 46) / 2, height: 180 }} />
+              <SkeletonCard style={{ width: (width - 46) / 2, height: 180 }} />
+            </View>
+          </View>
+        )}
 
         {!loading && !searching && isSearchActive && displayItems.length === 0 && peopleResults.length === 0 && (
           <View style={{ height: 280, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 }}>

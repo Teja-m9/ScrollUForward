@@ -6,6 +6,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { BounceIcon } from './src/components/AnimatedComponents';
 
 // Screens
 import AuthScreen from './src/screens/AuthScreen';
@@ -17,6 +18,7 @@ import ExploreScreen from './src/screens/ExploreScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
+import QuizScreen from './src/screens/QuizScreen';
 
 // Theme
 import { SketchTheme } from './src/theme';
@@ -83,10 +85,11 @@ function MainTabs() {
                     }),
                   },
                 ]}>
-                  <Ionicons
+                  <BounceIcon
                     name={focused ? tab.icon : tab.iconOutline}
                     size={20}
                     color={focused ? theme.ink : theme.inkFaint}
+                    focused={focused}
                   />
                 </View>
                 <Text style={[
@@ -225,6 +228,7 @@ export default function App() {
             <Stack.Screen name="MainTabs" component={MainTabs} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="UserProfile" component={ProfileScreen} options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="Quiz" component={QuizScreen} options={{ animation: 'slide_from_bottom' }} />
           </Stack.Navigator>
 
           {showChat && (

@@ -29,41 +29,54 @@ async def create_content(content: ContentCreate, current_user: dict = Depends(ge
     if not ban_status["allowed"]:
         raise HTTPException(status_code=403, detail=ban_status["reason"])
 
-    # 2. Content moderation (text + image/video in parallel)
-    mod_result = await moderate_content(
-        title=content.title,
-        body=content.body,
-        media_url=content.media_url,
-        thumbnail_url=content.thumbnail_url,
-    )
-    if not mod_result["safe"]:
-        # Record strike and escalate
-        violation_type = mod_result["violations"][0] if mod_result["violations"] else "policy_violation"
-        strike = await record_violation(
-            user_id=current_user["sub"],
-            violation_type=violation_type,
-            details=mod_result.get("details", {}),
-            content_type=content.content_type,
-            snippet=f"{content.title}: {content.body[:200]}",
+    # 2. Content moderation (text only — skip media URLs from phone uploads)
+    # Phone uploads use local file:// URIs that can't be moderated server-side
+    media_for_mod = content.media_url if content.media_url.startswith("http") else ""
+    thumb_for_mod = content.thumbnail_url if content.thumbnail_url.startswith("http") else ""
+    try:
+        mod_result = await moderate_content(
+            title=content.title,
+            body=content.body,
+            media_url=media_for_mod,
+            thumbnail_url=thumb_for_mod,
         )
-        raise HTTPException(
-            status_code=400,
-            detail=f"Content rejected: {', '.join(mod_result['violations'])}. {strike['message']}"
-        )
+        if not mod_result["safe"]:
+            # Only block for serious violations (profanity, unsafe text/media)
+            serious = [v for v in mod_result["violations"] if v in ("profanity", "unsafe_text", "unsafe_media")]
+            if serious:
+                violation_type = serious[0]
+                strike = await record_violation(
+                    user_id=current_user["sub"],
+                    violation_type=violation_type,
+                    details=mod_result.get("details", {}),
+                    content_type=content.content_type,
+                    snippet=f"{content.title}: {content.body[:200]}",
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Content rejected: {', '.join(serious)}. {strike['message']}"
+                )
+            # Non-serious (entertainment classification etc.) — allow but log
+            logger.info(f"Content passed with soft violations: {mod_result['violations']}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If moderation itself fails, allow the post through
+        logger.warning(f"Moderation pipeline error (allowing post): {e}")
 
     # ─── Editorial Gate — basic quality checks ─────────────
     quality_score = 80
-    if len(content.body) < 50:
-        quality_score -= 20
+    if len(content.body) < 20:
+        quality_score -= 30
     if len(content.citations) == 0:
-        quality_score -= 10
+        quality_score -= 5
     if content.domain not in ["technology", "history", "nature", "physics", "ai",
                                "ancient_civilizations", "space", "biology",
                                "chemistry", "mathematics", "philosophy", "engineering"]:
         raise HTTPException(status_code=400, detail="Invalid domain. Must be a knowledge domain.")
 
-    if quality_score < 50:
-        raise HTTPException(status_code=400, detail="Content does not meet quality standards (score < 50)")
+    if quality_score < 40:
+        raise HTTPException(status_code=400, detail="Content does not meet quality standards. Please add more detail.")
 
     try:
         # Get author info

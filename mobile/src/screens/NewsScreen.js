@@ -9,6 +9,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { contentAPI } from '../api';
 import { AuthContext, ThemeContext } from '../../App';
 import { Tape, Stamp, DoodleDivider, PaperCorner, SketchSectionHeader, StickyNote } from '../components/SketchComponents';
+import { PressableCard, EmptyState, FadeInView } from '../components/AnimatedComponents';
+import { InkRippleButton, FloatingParticles } from '../components/PremiumAnimations';
 
 const { width } = Dimensions.get('window');
 const HALF = (width - 48) / 2;
@@ -43,13 +45,22 @@ const fmtDate = (str) => {
 
 const fmtCount = (n) => n >= 1000 ? (n / 1000).toFixed(1) + 'K' : (n || 0).toString();
 
+// Check if a URL looks like a direct image link
+const isImageUrl = (url) => {
+  if (!url) return false;
+  // Match common image extensions (with optional query params)
+  if (/\.(jpg|jpeg|png|gif|webp|bmp|svg|avif)($|\?)/i.test(url)) return true;
+  // Known image CDNs / services
+  if (/unsplash\.com|pexels\.com|picsum\.photos|imgur\.com|images\.|img\.|cdn\./i.test(url)) return true;
+  return false;
+};
+
 // Generate a consistent placeholder image for news items without thumbnails
 const getNewsImage = (item) => {
-  if (item.thumbnail_url && !item.thumbnail_url.startsWith('blob:')) return item.thumbnail_url;
-  if (item.media_url && !item.media_url.startsWith('blob:')) return item.media_url;
-  // Use picsum with a seed based on item id for consistent images
-  const seed = item.id ? item.id.charCodeAt(0) + item.id.length : Math.floor(Math.random() * 1000);
-  return `https://picsum.photos/seed/${seed}/600/400`;
+  if (item.thumbnail_url && !item.thumbnail_url.startsWith('blob:') && isImageUrl(item.thumbnail_url)) return item.thumbnail_url;
+  if (item.media_url && !item.media_url.startsWith('blob:') && isImageUrl(item.media_url)) return item.media_url;
+  // Fallback: use picsum with item id as seed for consistent placeholder images
+  return `https://picsum.photos/seed/${item.id || Math.floor(Math.random() * 1000)}/600/400`;
 };
 
 export default function NewsScreen() {
@@ -235,6 +246,7 @@ export default function NewsScreen() {
     <View style={s.container}>
         {/* Notebook margin */}
         <View style={{ position: 'absolute', left: 14, top: 0, bottom: 0, width: 1.5, backgroundColor: 'rgba(200,55,55,0.08)', zIndex: 0 }} pointerEvents="none" />
+        <FloatingParticles count={5} />
       <StatusBar barStyle="dark-content" backgroundColor="#FBF8F0" />
 
       <ScrollView showsVerticalScrollIndicator={false}
@@ -296,11 +308,11 @@ export default function NewsScreen() {
               <Text style={s.storiesTitle}>STO{'\n'}RIES</Text>
               {/* Featured hero */}
               {featured && (
-                <TouchableOpacity style={s.heroCard} onPress={() => openDetail(featured)}>
+                <InkRippleButton style={s.heroCard} onPress={() => openDetail(featured)}>
                   <Tape color="yellow" style={{ left: 20 }} width={60} />
                   <Image source={{ uri: getNewsImage(featured) }} style={s.heroImg} />
                   <PaperCorner />
-                </TouchableOpacity>
+                </InkRippleButton>
               )}
             </View>
 
@@ -353,7 +365,7 @@ export default function NewsScreen() {
 
             {/* Remaining articles — editorial list */}
             {rest.map((item, i) => (
-              <TouchableOpacity key={item.id} style={s.editorialCard} onPress={() => openDetail(item)}>
+              <PressableCard key={item.id} style={s.editorialCard} onPress={() => openDetail(item)}>
                 <Tape color={['blue','purple','green','red','yellow'][i % 5]} style={{ right: 15, left: 'auto' }} width={45} />
                 <Image source={{ uri: getNewsImage(item) }} style={s.editorialImg} />
                 <View style={s.tagDateRow}>
@@ -383,7 +395,7 @@ export default function NewsScreen() {
                   </View>
                 </View>
                 {i < rest.length - 1 && <View style={s.editorialDivider} />}
-              </TouchableOpacity>
+              </PressableCard>
             ))}
 
             {/* Footer */}

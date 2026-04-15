@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthContext, ThemeContext } from '../../App';
 import { discussionsAPI } from '../api';
 import { Tape, Stamp, DoodleDivider, PaperCorner, StickyNote, SketchSectionHeader } from '../components/SketchComponents';
+import { PressableCard, EmptyState, FadeInView } from '../components/AnimatedComponents';
 
 const { width } = Dimensions.get('window');
 
@@ -541,7 +542,7 @@ export default function DiscussionsScreen() {
             {categoryRooms.map(item => {
               const dc = DOMAIN_COLORS[item.domain] || '#F9D84A';
               return (
-                <TouchableOpacity key={item.id} style={s.meetingCard} onPress={() => { setSelectedDiscussion(item); setExpandedReplies({}); setAiMessageCount(0); }}>
+                <PressableCard key={item.id} style={s.meetingCard} onPress={() => { setSelectedDiscussion(item); setExpandedReplies({}); setAiMessageCount(0); }}>
                   <View style={[s.meetingIcon, { backgroundColor: dc + '18' }]}>
                     <Ionicons name={DOMAIN_ICONS[item.domain] || 'chatbubbles'} size={20} color={dc} />
                   </View>
@@ -558,7 +559,7 @@ export default function DiscussionsScreen() {
                     </View>
                   </View>
                   <View style={[s.liveDot, { backgroundColor: '#7f5af0' + '20' }]}><View style={[s.liveDotInner, { backgroundColor: '#7f5af0' }]} /></View>
-                </TouchableOpacity>
+                </PressableCard>
               );
             })}
           </>
@@ -569,7 +570,7 @@ export default function DiscussionsScreen() {
           <>
             <SketchSectionHeader title="Community Rooms" />
             {customRooms.map(item => (
-              <TouchableOpacity key={item.id} style={s.meetingCard} onPress={() => { setSelectedDiscussion(item); setExpandedReplies({}); setAiMessageCount(0); }}>
+              <PressableCard key={item.id} style={s.meetingCard} onPress={() => { setSelectedDiscussion(item); setExpandedReplies({}); setAiMessageCount(0); }}>
                 <View style={[s.meetingIcon, { backgroundColor: (DOMAIN_COLORS[item.domain] || '#F9D84A') + '18' }]}>
                   <Ionicons name={DOMAIN_ICONS[item.domain] || 'chatbubbles'} size={20} color={DOMAIN_COLORS[item.domain] || '#F9D84A'} />
                 </View>
@@ -584,7 +585,7 @@ export default function DiscussionsScreen() {
                   </View>
                 </View>
                 <Text style={s.meetingTime}>{item.created_at}</Text>
-              </TouchableOpacity>
+              </PressableCard>
             ))}
           </>
         )}

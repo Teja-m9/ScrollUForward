@@ -16,6 +16,7 @@ from routes.chat_routes import router as chat_router
 from routes.user_routes import router as user_router
 from routes.pipeline_routes import router as pipeline_router
 from routes.admin_routes import router as admin_router
+from routes.quiz_routes import router as quiz_router
 from realtime import websocket_endpoint
 
 # Configure logging for agents
@@ -73,6 +74,7 @@ app.include_router(chat_router)
 app.include_router(user_router)
 app.include_router(pipeline_router)
 app.include_router(admin_router)
+app.include_router(quiz_router)
 
 
 # WebSocket endpoint for real-time chat

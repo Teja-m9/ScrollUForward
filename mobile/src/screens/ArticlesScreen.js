@@ -10,6 +10,7 @@ import { ThemeContext } from '../../App';
 import { contentAPI } from '../api';
 import { AuthContext } from '../../App';
 import { Tape, Stamp, DoodleDivider, PaperCorner, SketchSectionHeader } from '../components/SketchComponents';
+import { SkeletonCard, EmptyState, FadeInView } from '../components/AnimatedComponents';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -795,7 +796,11 @@ export default function ArticlesScreen({ navigation }) {
             </View>
           </View>
         ) : (
-          <ActivityIndicator color="#FFD60A" size="large" style={{ marginTop: 60 }} />
+          <View style={{ paddingHorizontal: 16, marginTop: 20 }}>
+            <SkeletonCard style={{ height: 160, marginBottom: 12 }} />
+            <SkeletonCard style={{ height: 160, marginBottom: 12 }} />
+            <SkeletonCard style={{ height: 160, marginBottom: 12 }} />
+          </View>
         )}
       />
 

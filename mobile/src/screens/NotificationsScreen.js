@@ -6,6 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { ThemeContext } from '../../App';
 import { DoodleDivider, Stamp, SketchAvatar, StickyNote, NotebookMargin } from '../components/SketchComponents';
+import { FadeInView, EmptyState as AnimatedEmptyState } from '../components/AnimatedComponents';
 
 const { width } = Dimensions.get('window');
 

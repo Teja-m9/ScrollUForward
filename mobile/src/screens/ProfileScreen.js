@@ -9,6 +9,9 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usersAPI, contentAPI, discussionsAPI } from '../api';
 import { AuthContext, ThemeContext } from '../../App';
+import { DOMAIN_COLORS } from '../theme';
+import { FadeInView, EmptyState } from '../components/AnimatedComponents';
+import { AnimatedCounter, ProgressRing, PulseGlow, FloatingParticles } from '../components/PremiumAnimations';
 
 const { width } = Dimensions.get('window');
 const POST_SIZE = (width - 6) / 3;
@@ -42,6 +45,8 @@ export default function ProfileScreen({ route, navigation }) {
   const [discussionHistory, setDiscussionHistory] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
   const [showPhotoModal, setShowPhotoModal] = useState(false); // fullscreen photo
+  const [selectedPost, setSelectedPost] = useState(null); // post popup modal
+  const [deletingPost, setDeletingPost] = useState(null);
 
   const isOwnProfile = !route?.params?.userId || route.params.userId === user?.user_id;
   const targetUserId = route?.params?.userId || user?.user_id;
@@ -246,9 +251,9 @@ export default function ProfileScreen({ route, navigation }) {
   };
 
   const getPostImage = (item, i) => {
-    if (item.media_url && !item.media_url.startsWith('blob:')) return item.media_url;
-    if (item.thumbnail_url && !item.thumbnail_url.startsWith('blob:')) return item.thumbnail_url;
-    return `https://picsum.photos/seed/post${i}/300/300`;
+    if (item.thumbnail_url && item.thumbnail_url.startsWith('http')) return item.thumbnail_url;
+    if (item.media_url && item.media_url.startsWith('http')) return item.media_url;
+    return `https://picsum.photos/seed/${item.id || i}/400/400`;
   };
 
   const renderSettingsItem = ({ icon, label, value, onPress, isToggle, toggleValue, onToggle, color, showChevron = true }) => (
@@ -376,21 +381,21 @@ export default function ProfileScreen({ route, navigation }) {
           {/* ── Stats + CTA row (like profile.webp) ── */}
           <View style={s.statsCtaRow}>
             <TouchableOpacity style={s.statItem} onPress={() => openFollowList('followers')}>
-              <Text style={s.statNum}>{fmtCount(profile?.followers_count)}</Text>
+              <AnimatedCounter value={profile?.followers_count || 0} style={s.statNum} />
               <Text style={s.statLabel}>Followers</Text>
             </TouchableOpacity>
 
             <View style={s.statDivider} />
 
             <TouchableOpacity style={s.statItem} onPress={() => openFollowList('following')}>
-              <Text style={s.statNum}>{fmtCount(profile?.following_count)}</Text>
+              <AnimatedCounter value={profile?.following_count || 0} style={s.statNum} />
               <Text style={s.statLabel}>Following</Text>
             </TouchableOpacity>
 
             <View style={s.statDivider} />
 
             <View style={s.statItem}>
-              <Text style={s.statNum}>{fmtCount(posts.length || profile?.posts_count)}</Text>
+              <AnimatedCounter value={posts.length || profile?.posts_count || 0} style={s.statNum} />
               <Text style={s.statLabel}>Posts</Text>
             </View>
 
@@ -423,34 +428,48 @@ export default function ProfileScreen({ route, navigation }) {
           </View>
 
           {/* Streak & Daily Goal — notebook style */}
-          {isOwnProfile && (
+          {isOwnProfile && (() => {
+            // Calculate streak: unique days the user posted
+            const uniqueDays = posts.length > 0
+              ? new Set(posts.map(p => p.created_at ? new Date(p.created_at).toDateString() : null).filter(Boolean)).size
+              : 0;
+            const streakValue = uniqueDays > 0 ? uniqueDays : (posts.length > 0 ? Math.min(posts.length, 30) : 1);
+
+            // Calculate daily goal percentage
+            const dailyGoalPct = Math.min(100, Math.round(((posts.length * 10) + (profile?.iq_score || 0)) / 5));
+
+            // Calculate rank based on IQ score
+            const iqScore = profile?.iq_score || 0;
+            const rankLabel = iqScore >= 5000 ? 'Genius' : iqScore >= 1000 ? 'Master' : iqScore >= 500 ? 'Expert' : iqScore >= 100 ? 'Scholar' : 'Novice';
+
+            return (
             <View style={s.streakRow}>
               <View style={s.streakCard}>
                 <View style={s.streakIconWrap}>
                   <Ionicons name="flame" size={20} color="#D35400" />
                 </View>
-                <Text style={s.streakNum}>7</Text>
+                <Text style={s.streakNum}>{streakValue}</Text>
                 <Text style={s.streakLabel}>Day Streak</Text>
               </View>
               <View style={s.streakCard}>
                 <View style={s.dailyGoalWrap}>
                   <View style={s.dailyGoalBg}>
-                    <View style={[s.dailyGoalFill, { width: '60%' }]} />
+                    <View style={[s.dailyGoalFill, { width: `${dailyGoalPct}%` }]} />
                   </View>
-                  <Text style={s.dailyGoalPct}>60%</Text>
+                  <Text style={s.dailyGoalPct}>{dailyGoalPct}%</Text>
                 </View>
                 <Text style={s.streakLabel}>Daily Goal</Text>
-                <Text style={s.dailyGoalSub}>3 of 5 items</Text>
               </View>
               <View style={s.streakCard}>
                 <View style={s.streakIconWrap}>
                   <Ionicons name="trophy" size={20} color="#EA580C" />
                 </View>
-                <Text style={s.streakNum}>{profile?.knowledge_rank || 'Novice'}</Text>
+                <Text style={s.streakNum}>{rankLabel}</Text>
                 <Text style={s.streakLabel}>Rank</Text>
               </View>
             </View>
-          )}
+            );
+          })()}
         </View>
 
         {/* Message + Share buttons (for other profiles) */}
@@ -493,18 +512,18 @@ export default function ProfileScreen({ route, navigation }) {
         {activeTab === 'posts' && (
           <View style={s.grid}>
             {posts.map((item, i) => (
-              <TouchableOpacity key={item.id || i} style={s.gridItem}>
+              <TouchableOpacity key={item.id || i} style={s.gridItem} onPress={() => setSelectedPost(item)} activeOpacity={0.8}>
                 <Image source={{ uri: getPostImage(item, i) }} style={s.gridImg} />
-                {item.content_type === 'reel' && (
+                {item.media_url && (item.media_url.includes('amazonaws') || item.media_url.includes('s3') || item.media_url.match?.(/\.(mp4|mov|webm)($|\?)/i)) && (
                   <View style={s.gridReelIcon}><Ionicons name="play" size={14} color="#FFF" /></View>
+                )}
+                {(!item.media_url || !item.media_url.match?.(/\.(mp4|mov|webm)($|\?)/i)) && item.thumbnail_url && (
+                  <View style={[s.gridReelIcon, { backgroundColor: 'rgba(37,99,235,0.7)' }]}><Ionicons name="image" size={12} color="#FFF" /></View>
                 )}
               </TouchableOpacity>
             ))}
             {posts.length === 0 && (
-              <View style={s.emptyBox}>
-                <Ionicons name="grid-outline" size={40} color="#333" />
-                <Text style={s.emptyText}>No posts yet</Text>
-              </View>
+              <EmptyState icon="grid-outline" title="No posts yet" subtitle="Your posts will appear here" />
             )}
           </View>
         )}
@@ -512,15 +531,12 @@ export default function ProfileScreen({ route, navigation }) {
         {activeTab === 'saved' && isOwnProfile && (
           <View style={s.grid}>
             {savedPosts.map((item, i) => (
-              <TouchableOpacity key={item.id || i} style={s.gridItem}>
+              <TouchableOpacity key={item.id || i} style={s.gridItem} onPress={() => setSelectedPost(item)} activeOpacity={0.8}>
                 <Image source={{ uri: getPostImage(item, i) }} style={s.gridImg} />
               </TouchableOpacity>
             ))}
             {savedPosts.length === 0 && (
-              <View style={s.emptyBox}>
-                <Ionicons name="bookmark-outline" size={40} color="#333" />
-                <Text style={s.emptyText}>No saved content yet</Text>
-              </View>
+              <EmptyState icon="bookmark-outline" title="No saved content" subtitle="Save posts to find them here later" />
             )}
           </View>
         )}
@@ -528,13 +544,7 @@ export default function ProfileScreen({ route, navigation }) {
         {activeTab === 'chats' && (
           <View style={{ paddingHorizontal: 12, paddingTop: 12 }}>
             {discussionHistory.length === 0 ? (
-              <View style={s.emptyBox}>
-                <Ionicons name="chatbubbles-outline" size={40} color="#333" />
-                <Text style={s.emptyText}>No discussion chats yet</Text>
-                <Text style={{ color: '#8A7860', fontSize: 12, marginTop: 4, textAlign: 'center', paddingHorizontal: 30 }}>
-                  Join an AI discussion room and your chat history will appear here
-                </Text>
-              </View>
+              <EmptyState icon="chatbubbles-outline" title="No chats yet" subtitle="Join a discussion room to start chatting" />
             ) : (
               discussionHistory.map((item, i) => {
                 const disc = item.discussion;
@@ -752,6 +762,87 @@ export default function ProfileScreen({ route, navigation }) {
         </View>
       </Modal>
 
+      {/* ── Post Popup Modal ── */}
+      <Modal visible={!!selectedPost} animationType="fade" transparent onRequestClose={() => setSelectedPost(null)}>
+        <View style={s.postPopupOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setSelectedPost(null)} />
+          {selectedPost && (
+            <View style={s.postPopupCard}>
+              {/* Close button */}
+              <TouchableOpacity style={s.postPopupClose} onPress={() => setSelectedPost(null)}>
+                <Ionicons name="close" size={22} color="#FFF" />
+              </TouchableOpacity>
+
+              {/* Post image */}
+              <Image
+                source={{ uri: selectedPost.thumbnail_url || selectedPost.media_url || `https://picsum.photos/seed/${selectedPost.id}/600/400` }}
+                style={s.postPopupImage}
+                resizeMode="cover"
+              />
+
+              {/* Post info */}
+              <View style={s.postPopupInfo}>
+                {/* Domain stamp */}
+                <View style={[s.postPopupDomain, { backgroundColor: (DOMAIN_COLORS[selectedPost.domain] || '#2563EB') + '15', borderColor: DOMAIN_COLORS[selectedPost.domain] || '#2563EB' }]}>
+                  <Text style={[s.postPopupDomainText, { color: DOMAIN_COLORS[selectedPost.domain] || '#2563EB' }]}>{(selectedPost.domain || '').toUpperCase()}</Text>
+                </View>
+
+                <Text style={s.postPopupTitle} numberOfLines={2}>{selectedPost.title || 'Untitled'}</Text>
+
+                {selectedPost.body ? (
+                  <Text style={s.postPopupBody} numberOfLines={3}>{selectedPost.body}</Text>
+                ) : null}
+
+                {/* Stats row */}
+                <View style={s.postPopupStats}>
+                  <View style={s.postPopupStat}>
+                    <Ionicons name="heart" size={16} color="#DC2626" />
+                    <Text style={s.postPopupStatText}>{selectedPost.likes_count || 0}</Text>
+                  </View>
+                  <View style={s.postPopupStat}>
+                    <Ionicons name="eye" size={16} color="#0891B2" />
+                    <Text style={s.postPopupStatText}>{selectedPost.views_count || 0}</Text>
+                  </View>
+                  <View style={s.postPopupStat}>
+                    <Ionicons name="chatbubble" size={16} color="#2563EB" />
+                    <Text style={s.postPopupStatText}>{selectedPost.comments_count || 0}</Text>
+                  </View>
+                  <View style={s.postPopupStat}>
+                    <Ionicons name="bookmark" size={16} color="#7C3AED" />
+                    <Text style={s.postPopupStatText}>{selectedPost.saves_count || 0}</Text>
+                  </View>
+                </View>
+
+                {/* Date */}
+                <Text style={s.postPopupDate}>
+                  {selectedPost.created_at ? new Date(selectedPost.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+                </Text>
+
+                {/* Delete button — own profile only */}
+                {isOwnProfile && (
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#E6D5B8' }}
+                    onPress={() => {
+                      Alert.alert('Delete Post?', 'This action cannot be undone.', [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Delete', style: 'destructive', onPress: async () => {
+                          try { await contentAPI.interact(selectedPost.id, { interaction_type: 'delete' }); } catch {}
+                          setPosts(prev => prev.filter(p => p.id !== selectedPost.id));
+                          setSelectedPost(null);
+                        }},
+                      ]);
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#DC2626" />
+                    <Text style={{ color: '#DC2626', fontSize: 13, fontWeight: '700' }}>Delete Post</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
+        </View>
+      </Modal>
+
       {/* ── Settings Modal ── */}
       <Modal visible={showSettings} animationType="slide" transparent>
         <View style={s.modalOverlay}>
@@ -773,6 +864,60 @@ export default function ProfileScreen({ route, navigation }) {
               {renderSettingsItem({ icon: 'notifications-outline', label: 'Push Notifications', isToggle: true, toggleValue: notifEnabled, onToggle: setNotifEnabled })}
               {renderSettingsItem({ icon: 'lock-closed-outline', label: 'Private Account', isToggle: true, toggleValue: privateAccount, onToggle: setPrivateAccount })}
               {renderSettingsItem({ icon: 'moon-outline', label: 'Dark Mode', isToggle: true, toggleValue: isDarkTheme, onToggle: toggleTheme })}
+
+              <Text style={s.settingsSectionTitle}>ANALYTICS</Text>
+              {/* Account Analytics */}
+              <View style={s.analyticsCard}>
+                <Text style={s.analyticsTitle}>Account Overview</Text>
+                <View style={s.analyticsGrid}>
+                  <View style={s.analyticItem}>
+                    <Ionicons name="people" size={20} color="#2563EB" />
+                    <Text style={s.analyticNum}>{profile?.followers_count || 0}</Text>
+                    <Text style={s.analyticLabel}>Followers</Text>
+                  </View>
+                  <View style={s.analyticItem}>
+                    <Ionicons name="person-add" size={20} color="#059669" />
+                    <Text style={s.analyticNum}>{profile?.following_count || 0}</Text>
+                    <Text style={s.analyticLabel}>Following</Text>
+                  </View>
+                  <View style={s.analyticItem}>
+                    <Ionicons name="document-text" size={20} color="#EA580C" />
+                    <Text style={s.analyticNum}>{posts.length}</Text>
+                    <Text style={s.analyticLabel}>Posts</Text>
+                  </View>
+                  <View style={s.analyticItem}>
+                    <Ionicons name="flash" size={20} color="#7C3AED" />
+                    <AnimatedCounter value={profile?.iq_score || 0} style={s.analyticNum} />
+                    <Text style={s.analyticLabel}>IQ Score</Text>
+                  </View>
+                </View>
+              </View>
+              {/* Post Analytics */}
+              <View style={s.analyticsCard}>
+                <Text style={s.analyticsTitle}>Post Performance</Text>
+                <View style={s.analyticsGrid}>
+                  <View style={s.analyticItem}>
+                    <Ionicons name="heart" size={20} color="#DC2626" />
+                    <AnimatedCounter value={posts.reduce((sum, p) => sum + (p.likes_count || 0), 0)} style={s.analyticNum} />
+                    <Text style={s.analyticLabel}>Total Likes</Text>
+                  </View>
+                  <View style={s.analyticItem}>
+                    <Ionicons name="eye" size={20} color="#0891B2" />
+                    <AnimatedCounter value={posts.reduce((sum, p) => sum + (p.views_count || 0), 0)} style={s.analyticNum} />
+                    <Text style={s.analyticLabel}>Total Views</Text>
+                  </View>
+                  <View style={s.analyticItem}>
+                    <Ionicons name="chatbubble" size={20} color="#2563EB" />
+                    <Text style={s.analyticNum}>{posts.reduce((sum, p) => sum + (p.comments_count || 0), 0)}</Text>
+                    <Text style={s.analyticLabel}>Comments</Text>
+                  </View>
+                  <View style={s.analyticItem}>
+                    <Ionicons name="bookmark" size={20} color="#7C3AED" />
+                    <Text style={s.analyticNum}>{posts.reduce((sum, p) => sum + (p.saves_count || 0), 0)}</Text>
+                    <Text style={s.analyticLabel}>Saves</Text>
+                  </View>
+                </View>
+              </View>
 
               <Text style={s.settingsSectionTitle}>CONTENT</Text>
               {renderSettingsItem({ icon: 'bookmark-outline', label: 'Saved Content', onPress: () => { setShowSettings(false); setActiveTab('saved'); } })}
@@ -974,4 +1119,87 @@ const s = StyleSheet.create({
   settingsLabel: { fontSize: 15, fontWeight: '500' },
   settingsValue: { fontSize: 12, color: '#8A7860', marginTop: 1 },
   versionText: { textAlign: 'center', fontSize: 12, color: '#8A7860', marginTop: 20 },
+
+  // ─── Post Popup Modal ───
+  postPopupOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center', alignItems: 'center', padding: 20,
+  },
+  postPopupCard: {
+    width: '100%', maxWidth: 380,
+    backgroundColor: '#FFFCF2', borderRadius: 16, overflow: 'hidden',
+    borderWidth: 2.5, borderColor: '#2C1810',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.4, shadowRadius: 20 },
+      android: { elevation: 20 },
+    }),
+  },
+  postPopupClose: {
+    position: 'absolute', top: 10, right: 10, zIndex: 10,
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  postPopupImage: {
+    width: '100%', height: 280, backgroundColor: '#F3EACD',
+  },
+  postPopupInfo: {
+    padding: 16,
+  },
+  postPopupDomain: {
+    alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 3,
+    borderWidth: 2, borderRadius: 3, marginBottom: 10,
+    transform: [{ rotate: '-2deg' }],
+  },
+  postPopupDomainText: {
+    fontSize: 9, fontWeight: '900', letterSpacing: 2,
+  },
+  postPopupTitle: {
+    fontSize: 18, fontWeight: '800', color: '#2C1810',
+    lineHeight: 24, marginBottom: 6, letterSpacing: -0.3,
+  },
+  postPopupBody: {
+    fontSize: 14, color: '#8A7558', lineHeight: 20, marginBottom: 12,
+  },
+  postPopupStats: {
+    flexDirection: 'row', gap: 16, paddingTop: 12,
+    borderTopWidth: 1.5, borderTopColor: 'rgba(90,150,210,0.12)',
+  },
+  postPopupStat: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+  },
+  postPopupStatText: {
+    fontSize: 13, fontWeight: '700', color: '#4A3520',
+  },
+  postPopupDate: {
+    fontSize: 11, color: '#8A7558', marginTop: 10, fontStyle: 'italic',
+  },
+
+  // ─── Analytics Cards ───
+  analyticsCard: {
+    marginHorizontal: 16, marginBottom: 14, padding: 16,
+    backgroundColor: '#FFFCF2', borderWidth: 2, borderColor: '#2C1810',
+    borderTopLeftRadius: 3, borderTopRightRadius: 14,
+    borderBottomLeftRadius: 14, borderBottomRightRadius: 3,
+    ...Platform.select({
+      ios: { shadowColor: '#2C1810', shadowOffset: { width: 3, height: 3 }, shadowOpacity: 0.8, shadowRadius: 0 },
+      android: { elevation: 4 },
+    }),
+  },
+  analyticsTitle: {
+    fontSize: 14, fontWeight: '800', color: '#2C1810',
+    letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14,
+  },
+  analyticsGrid: {
+    flexDirection: 'row', justifyContent: 'space-between',
+  },
+  analyticItem: {
+    alignItems: 'center', flex: 1, gap: 4,
+  },
+  analyticNum: {
+    fontSize: 20, fontWeight: '900', color: '#2C1810',
+  },
+  analyticLabel: {
+    fontSize: 10, fontWeight: '600', color: '#8A7558', textAlign: 'center',
+  },
 });

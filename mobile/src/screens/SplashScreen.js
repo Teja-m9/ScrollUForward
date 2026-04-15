@@ -1,463 +1,413 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions, StatusBar, Platform } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Animated, Dimensions, StatusBar, Platform, Easing } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 const { width, height } = Dimensions.get('window');
-const ACCENT = '#FFD60A';
 const INK = '#2C1810';
 const PAPER = '#FDF6E3';
+const ACCENT = '#FFD60A';
+const BLUE = '#2563EB';
 
-const IMAGES = [
-  require('../../assets/splash1.jpg'),
-  require('../../assets/splash2.jpg'),
-  require('../../assets/splash3.jpg'),
-  require('../../assets/splash4.jpg'),
-  require('../../assets/splash5.jpg'),
-];
+// Split into two lines for full-screen impact
+const LINE1 = ['S','c','r','o','l','l'];
+const LINE2 = ['F','o','r','w','a','r','d'];
 
 export default function SplashScreen({ onFinish }) {
-  const [currentImg, setCurrentImg] = useState(0);
-  const [phase, setPhase] = useState('cover'); // cover -> open -> gallery -> done
+  // Background
+  const bgOpacity = useRef(new Animated.Value(0)).current;
 
-  // Cover animation
-  const coverScale = useRef(new Animated.Value(0.85)).current;
-  const coverOpacity = useRef(new Animated.Value(1)).current;
-  const coverRotate = useRef(new Animated.Value(0)).current;
+  // Ruled lines wipe
+  const linesClipY = useRef(new Animated.Value(height)).current;
 
-  // Page turn effect
-  const pageFlip = useRef(new Animated.Value(0)).current;
-
-  // Title animations
-  const titleOpacity = useRef(new Animated.Value(0)).current;
-  const titleSlideY = useRef(new Animated.Value(20)).current;
-  const subtitleOpacity = useRef(new Animated.Value(0)).current;
-  const taglineOpacity = useRef(new Animated.Value(0)).current;
-
-  // Image gallery
-  const imgAnims = useRef(IMAGES.map(() => ({
+  // LINE 1 letters — "Scroll"
+  const l1Anims = useRef(LINE1.map(() => ({
     opacity: new Animated.Value(0),
+    y: new Animated.Value(60),
     scale: new Animated.Value(0.3),
   }))).current;
 
-  // Decorative elements
-  const ruledLinesOpacity = useRef(new Animated.Value(0)).current;
-  const spiralOpacity = useRef(new Animated.Value(0)).current;
-  const ribbonSlide = useRef(new Animated.Value(-60)).current;
-  const stampRotate = useRef(new Animated.Value(-20)).current;
-  const stampScale = useRef(new Animated.Value(0)).current;
+  // The big "U" — special animation
+  const uScale = useRef(new Animated.Value(0)).current;
+  const uOpacity = useRef(new Animated.Value(0)).current;
+  const uRotate = useRef(new Animated.Value(0)).current;
+  // Spinning ring around U
+  const ringScale = useRef(new Animated.Value(0)).current;
+  const ringOpacity = useRef(new Animated.Value(0)).current;
+  const ringRotate = useRef(new Animated.Value(0)).current;
+  // Second ring pulse
+  const ring2Scale = useRef(new Animated.Value(0.5)).current;
+  const ring2Opacity = useRef(new Animated.Value(0)).current;
 
-  // Progress
-  const barWidth = useRef(new Animated.Value(0)).current;
+  // LINE 2 letters — "Forward"
+  const l2Anims = useRef(LINE2.map(() => ({
+    opacity: new Animated.Value(0),
+    y: new Animated.Value(60),
+    scale: new Animated.Value(0.3),
+  }))).current;
 
-  useEffect(() => {
-    startSequence();
-  }, []);
+  // Marker underline
+  const markerX = useRef(new Animated.Value(-width)).current;
 
-  const startSequence = () => {
-    // Phase 1: Show notebook cover with bounce
+  // Tagline
+  const tagOpacity = useRef(new Animated.Value(0)).current;
+  const tagY = useRef(new Animated.Value(15)).current;
+
+  // Bottom — notebook deco
+  const bottomOpacity = useRef(new Animated.Value(0)).current;
+
+  // Logo icon (small, above text)
+  const iconOpacity = useRef(new Animated.Value(0)).current;
+  const iconScale = useRef(new Animated.Value(0)).current;
+
+  // Exit
+  const fade = useRef(new Animated.Value(1)).current;
+
+  const easeOut = Easing.out(Easing.cubic);
+  const easeBack = Easing.out(Easing.back(1.5));
+
+  useEffect(() => { go(); }, []);
+
+  const go = () => {
     Animated.sequence([
-      Animated.spring(coverScale, { toValue: 1, friction: 6, tension: 80, useNativeDriver: true }),
-      Animated.delay(300),
-    ]).start(() => {
-      // Phase 2: Open the notebook — cover flips away
-      setPhase('open');
+
+      // ── 1. Background + ruled lines wipe down (0-500ms) ──
       Animated.parallel([
-        Animated.timing(coverOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
-        Animated.timing(coverRotate, { toValue: 1, duration: 600, useNativeDriver: true }),
-        // Reveal ruled lines
-        Animated.timing(ruledLinesOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-        // Spiral binding slides in
-        Animated.timing(spiralOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-        // Bookmark ribbon slides down
-        Animated.spring(ribbonSlide, { toValue: 0, friction: 5, tension: 60, useNativeDriver: true }),
-      ]).start(() => {
-        // Phase 3: Title writes itself in
-        Animated.stagger(150, [
-          Animated.parallel([
-            Animated.timing(titleOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-            Animated.spring(titleSlideY, { toValue: 0, friction: 6, tension: 80, useNativeDriver: true }),
-          ]),
-          Animated.timing(subtitleOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.timing(taglineOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-          // Stamp slams in
-          Animated.parallel([
-            Animated.spring(stampScale, { toValue: 1, friction: 4, tension: 120, useNativeDriver: true }),
-            Animated.spring(stampRotate, { toValue: 0, friction: 6, tension: 80, useNativeDriver: true }),
-          ]),
-        ]).start(() => {
-          // Done — finish splash
-          Animated.timing(barWidth, { toValue: 100, duration: 400, useNativeDriver: false }).start(() => {
-            setTimeout(() => onFinish(), 300);
-          });
-        });
-      });
-    });
-  };
+        Animated.timing(bgOpacity, { toValue: 1, duration: 300, easing: easeOut, useNativeDriver: true }),
+        Animated.timing(linesClipY, { toValue: 0, duration: 500, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ]),
 
-  const showImage = (idx) => {
-    if (idx >= IMAGES.length) {
-      // Finish
-      Animated.timing(barWidth, { toValue: 100, duration: 200, useNativeDriver: false }).start(() => {
-        setTimeout(() => onFinish(), 200);
-      });
-      return;
-    }
+      // ── 2. Small logo icon drops in (500-700ms) ──
+      Animated.parallel([
+        Animated.timing(iconOpacity, { toValue: 1, duration: 250, easing: easeOut, useNativeDriver: true }),
+        Animated.timing(iconScale, { toValue: 1, duration: 350, easing: easeBack, useNativeDriver: true }),
+      ]),
 
-    setCurrentImg(idx);
-    const anim = imgAnims[idx];
-    anim.scale.setValue(idx % 2 === 0 ? 0.4 : 1.8);
-    anim.opacity.setValue(0);
-
-    Animated.timing(barWidth, {
-      toValue: ((idx + 1) / IMAGES.length) * 85,
-      duration: 80,
-      useNativeDriver: false,
-    }).start();
-
-    Animated.parallel([
-      Animated.timing(anim.scale, { toValue: 1, duration: 120, useNativeDriver: true }),
-      Animated.timing(anim.opacity, { toValue: 0.12, duration: 60, useNativeDriver: true }),
-    ]).start(() => {
-      setTimeout(() => {
+      // ── 3. "Scroll" — letters rise up one by one (700-1200ms) ──
+      Animated.stagger(55, l1Anims.map(a =>
         Animated.parallel([
-          Animated.timing(anim.scale, { toValue: 2.2, duration: 120, useNativeDriver: true }),
-          Animated.timing(anim.opacity, { toValue: 0, duration: 100, useNativeDriver: true }),
-        ]).start();
-        showImage(idx + 1);
-      }, 80);
-    });
+          Animated.timing(a.opacity, { toValue: 1, duration: 250, easing: easeOut, useNativeDriver: true }),
+          Animated.timing(a.y, { toValue: 0, duration: 350, easing: easeBack, useNativeDriver: true }),
+          Animated.timing(a.scale, { toValue: 1, duration: 350, easing: easeBack, useNativeDriver: true }),
+        ])
+      )),
+
+      // ── 4. THE "U" — big special reveal (1200-1700ms) ──
+      Animated.parallel([
+        // Ring spins in first
+        Animated.parallel([
+          Animated.timing(ringScale, { toValue: 1, duration: 400, easing: easeOut, useNativeDriver: true }),
+          Animated.timing(ringOpacity, { toValue: 1, duration: 300, easing: easeOut, useNativeDriver: true }),
+          Animated.timing(ringRotate, { toValue: 1, duration: 600, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        ]),
+        // Then U letter appears
+        Animated.sequence([
+          Animated.delay(150),
+          Animated.parallel([
+            Animated.timing(uOpacity, { toValue: 1, duration: 250, easing: easeOut, useNativeDriver: true }),
+            Animated.timing(uScale, { toValue: 1, duration: 400, easing: easeBack, useNativeDriver: true }),
+            Animated.timing(uRotate, { toValue: 1, duration: 500, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+          ]),
+        ]),
+        // Second ring pulse
+        Animated.sequence([
+          Animated.delay(250),
+          Animated.parallel([
+            Animated.timing(ring2Opacity, { toValue: 0.5, duration: 200, useNativeDriver: true }),
+            Animated.timing(ring2Scale, { toValue: 1.8, duration: 500, easing: easeOut, useNativeDriver: true }),
+          ]),
+          Animated.timing(ring2Opacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+        ]),
+        // First ring fades after pulse
+        Animated.sequence([
+          Animated.delay(400),
+          Animated.timing(ringOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+        ]),
+      ]),
+
+      // ── 5. "Forward" — letters rise up (1700-2200ms) ──
+      Animated.stagger(50, l2Anims.map(a =>
+        Animated.parallel([
+          Animated.timing(a.opacity, { toValue: 1, duration: 250, easing: easeOut, useNativeDriver: true }),
+          Animated.timing(a.y, { toValue: 0, duration: 350, easing: easeBack, useNativeDriver: true }),
+          Animated.timing(a.scale, { toValue: 1, duration: 350, easing: easeBack, useNativeDriver: true }),
+        ])
+      )),
+
+      // ── 6. Marker underline sweeps across (2200-2500ms) ──
+      Animated.timing(markerX, { toValue: 0, duration: 300, easing: easeOut, useNativeDriver: true }),
+
+      // ── 7. Tagline + bottom deco (2500-2800ms) ──
+      Animated.parallel([
+        Animated.parallel([
+          Animated.timing(tagOpacity, { toValue: 1, duration: 300, easing: easeOut, useNativeDriver: true }),
+          Animated.timing(tagY, { toValue: 0, duration: 350, easing: easeBack, useNativeDriver: true }),
+        ]),
+        Animated.sequence([
+          Animated.delay(150),
+          Animated.timing(bottomOpacity, { toValue: 1, duration: 250, easing: easeOut, useNativeDriver: true }),
+        ]),
+      ]),
+
+      // ── 8. Hold + exit (2800-3200ms) ──
+      Animated.delay(300),
+      Animated.timing(fade, { toValue: 0, duration: 300, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+
+    ]).start(() => onFinish());
   };
 
-  const coverRotateInterp = coverRotate.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '-90deg'],
-  });
-
-  const stampRotateInterp = stampRotate.interpolate({
-    inputRange: [-20, 0],
-    outputRange: ['-20deg', '-4deg'],
-  });
+  const ringRotateI = ringRotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const uRotateI = uRotate.interpolate({ inputRange: [0, 1], outputRange: ['-15deg', '0deg'] });
 
   return (
-    <View style={s.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0A0A0A" />
+    <Animated.View style={[st.container, { opacity: fade }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={PAPER} />
 
-      <View style={StyleSheet.absoluteFill}>
-        {/* Dark background base */}
-        <View style={s.darkBg} />
+      {/* ═══ BACKGROUND ═══ */}
+      <Animated.View style={[st.bg, { opacity: bgOpacity }]} />
 
-        {/* ═══ NOTEBOOK PAGE BACKGROUND ═══ */}
-        <Animated.View style={[s.notebookBg, { opacity: ruledLinesOpacity }]}>
-          {/* Paper texture */}
-          <View style={s.paperTexture} />
+      {/* ═══ RULED LINES (wipe down) ═══ */}
+      <Animated.View style={[st.linesWrap, { transform: [{ translateY: linesClipY }] }]}>
+        {Array.from({ length: Math.ceil(height / 28) + 1 }, (_, i) => (
+          <View key={i} style={[st.ruled, { top: i * 28 }]} />
+        ))}
+        <View style={st.margin} />
+        {[0.1, 0.3, 0.5, 0.7, 0.9].map((p, i) => (
+          <View key={`h${i}`} style={[st.hole, { top: `${p * 100}%` }]} />
+        ))}
+      </Animated.View>
 
-          {/* Ruled lines */}
-          {Array.from({ length: 30 }, (_, i) => (
-            <View key={`line-${i}`} style={[s.ruledLine, { top: 80 + i * 28 }]} />
-          ))}
-
-          {/* Margin line */}
-          <View style={s.marginLine} />
-
-          {/* Three hole punches */}
-          {[0.2, 0.5, 0.8].map((pos, i) => (
-            <View key={`hole-${i}`} style={[s.holePunch, { top: `${pos * 100}%` }]}>
-              <View style={s.holePunchInner} />
-            </View>
-          ))}
-        </Animated.View>
-
-        {/* ═══ SPIRAL BINDING ═══ */}
-        <Animated.View style={[s.spiralCol, { opacity: spiralOpacity }]}>
-          {Array.from({ length: 10 }, (_, i) => (
-            <View key={`spiral-${i}`} style={s.spiralCoil}>
-              <View style={s.spiralCoilInner} />
-            </View>
-          ))}
-        </Animated.View>
-
-        {/* ═══ BOOKMARK RIBBON ═══ */}
-        <Animated.View style={[s.ribbon, { transform: [{ translateY: ribbonSlide }] }]}>
-          <View style={s.ribbonBody} />
-          <View style={s.ribbonVCut}>
-            <View style={s.ribbonVLeft} />
-            <View style={s.ribbonVRight} />
-          </View>
-          <View style={s.ribbonShadow} />
-        </Animated.View>
-
-        {/* Images removed */}
-
-        {/* ═══ NOTEBOOK COVER ═══ */}
-        <Animated.View style={[s.coverWrap, {
-          opacity: coverOpacity,
-          transform: [
-            { scale: coverScale },
-            { perspective: 800 },
-            { rotateY: coverRotateInterp },
-          ],
-        }]}>
-          <View style={s.cover}>
-            {/* Cover texture pattern */}
-            <View style={s.coverPattern}>
-              {Array.from({ length: 6 }, (_, i) => (
-                <View key={i} style={[s.coverStripe, { top: 30 + i * 50 }]} />
-              ))}
-            </View>
-
-            {/* Cover border */}
-            <View style={s.coverBorder}>
-              <View style={s.coverLabel}>
-                <Text style={s.coverLabelSmall}>-- est. 2024 --</Text>
-                <Text style={s.coverTitle}>Scroll<Text style={s.coverTitleAccent}>U</Text></Text>
-                <Text style={s.coverTitle}>Forward</Text>
-                <View style={s.coverDivider} />
-                <Text style={s.coverSubtitle}>JOURNAL OF CURIOSITY</Text>
-              </View>
-            </View>
-
-            {/* Decorative corner marks */}
-            <View style={[s.coverCorner, { top: 16, left: 16 }]} />
-            <View style={[s.coverCorner, { top: 16, right: 16, transform: [{ rotate: '90deg' }] }]} />
-            <View style={[s.coverCorner, { bottom: 16, left: 16, transform: [{ rotate: '-90deg' }] }]} />
-            <View style={[s.coverCorner, { bottom: 16, right: 16, transform: [{ rotate: '180deg' }] }]} />
-          </View>
-        </Animated.View>
-
-        {/* ═══ TITLE OVERLAY (after cover opens) ═══ */}
-        <View style={s.titleOverlay} pointerEvents="none">
-          <Animated.View style={{ opacity: titleOpacity, transform: [{ translateY: titleSlideY }] }}>
-            <Text style={s.title}>
-              Scroll<Text style={s.titleAccent}>U</Text>Forward
-            </Text>
-          </Animated.View>
-
-          <Animated.Text style={[s.subtitle, { opacity: subtitleOpacity }]}>
-            Where Curiosity Scales
-          </Animated.Text>
-
-          <Animated.Text style={[s.tagline, { opacity: taglineOpacity }]}>
-            Your intellectual journal awaits
-          </Animated.Text>
-
-          {/* Stamp decoration */}
-          <Animated.View style={[s.stampDecor, {
-            transform: [{ scale: stampScale }, { rotate: stampRotateInterp }],
-          }]}>
-            <Text style={s.stampText}>OPEN</Text>
-            <Text style={s.stampTextSmall}>YOUR MIND</Text>
-          </Animated.View>
+      {/* ═══ SMALL LOGO ICON ═══ */}
+      <Animated.View style={[st.iconWrap, {
+        opacity: iconOpacity,
+        transform: [{ scale: iconScale }],
+      }]}>
+        <View style={st.iconCircle}>
+          <Ionicons name="school" size={22} color={ACCENT} />
         </View>
+      </Animated.View>
 
-        {/* ═══ PROGRESS BAR ═══ */}
-        <Animated.View style={[s.bar, {
-          width: barWidth.interpolate({
-            inputRange: [0, 100],
-            outputRange: ['0%', '100%'],
-          }),
-        }]} />
+      {/* ═══ LINE 1: "Scroll" ═══ */}
+      <View style={st.line1}>
+        {LINE1.map((ch, i) => (
+          <Animated.Text key={`l1-${i}`} style={[st.bigLetter, {
+            opacity: l1Anims[i].opacity,
+            transform: [
+              { translateY: l1Anims[i].y },
+              { scale: l1Anims[i].scale },
+            ],
+          }]}>
+            {ch}
+          </Animated.Text>
+        ))}
 
-        {/* ═══ COUNTER ═══ */}
-        <Text style={s.counter} />
+        {/* ═══ THE "U" — with spinning ring ═══ */}
+        <View style={st.uContainer}>
+          {/* Dotted ring */}
+          <Animated.View style={[st.uRing, {
+            opacity: ringOpacity,
+            transform: [{ scale: ringScale }, { rotate: ringRotateI }],
+          }]}>
+            {Array.from({ length: 12 }, (_, i) => {
+              const angle = (i * 30 * Math.PI) / 180;
+              return (
+                <View key={i} style={[st.ringDot, {
+                  left: 28 + Math.cos(angle) * 28,
+                  top: 28 + Math.sin(angle) * 28,
+                  backgroundColor: i % 3 === 0 ? ACCENT : i % 3 === 1 ? BLUE : '#DC2626',
+                }]} />
+              );
+            })}
+          </Animated.View>
 
-        {/* ═══ WASHI TAPE DECORATION ═══ */}
-        <Animated.View style={[s.washiTop, { opacity: ruledLinesOpacity }]}>
-          <View style={s.washiTape} />
-        </Animated.View>
+          {/* Pulse ring */}
+          <Animated.View style={[st.uPulseRing, {
+            opacity: ring2Opacity,
+            transform: [{ scale: ring2Scale }],
+          }]} />
+
+          {/* The U letter */}
+          <Animated.Text style={[st.uLetter, {
+            opacity: uOpacity,
+            transform: [{ scale: uScale }, { rotate: uRotateI }],
+          }]}>
+            U
+          </Animated.Text>
+        </View>
       </View>
-    </View>
+
+      {/* ═══ LINE 2: "Forward" ═══ */}
+      <View style={st.line2}>
+        {LINE2.map((ch, i) => (
+          <Animated.Text key={`l2-${i}`} style={[st.bigLetter2, {
+            opacity: l2Anims[i].opacity,
+            transform: [
+              { translateY: l2Anims[i].y },
+              { scale: l2Anims[i].scale },
+            ],
+          }]}>
+            {ch}
+          </Animated.Text>
+        ))}
+      </View>
+
+      {/* ═══ MARKER UNDERLINE ═══ */}
+      <Animated.View style={[st.markerWrap, { transform: [{ translateX: markerX }] }]}>
+        <View style={st.markerThick} />
+        <View style={st.markerThin} />
+      </Animated.View>
+
+      {/* ═══ TAGLINE ═══ */}
+      <Animated.Text style={[st.tagline, {
+        opacity: tagOpacity,
+        transform: [{ translateY: tagY }],
+      }]}>
+        Where Curiosity Scales
+      </Animated.Text>
+
+      {/* ═══ BOTTOM DECORATION ═══ */}
+      <Animated.View style={[st.bottom, { opacity: bottomOpacity }]}>
+        <View style={st.tapeLabel}>
+          <Text style={st.tapeLabelText}>YOUR KNOWLEDGE JOURNAL</Text>
+        </View>
+        <View style={st.dividerRow}>
+          <View style={[st.divLine, { width: 20 }]} />
+          <View style={st.divDot} />
+          <View style={[st.divLine, { width: 35, opacity: 0.5 }]} />
+          <Ionicons name="school-outline" size={10} color="#C4AA78" />
+          <View style={[st.divLine, { width: 35, opacity: 0.5 }]} />
+          <View style={st.divDot} />
+          <View style={[st.divLine, { width: 20 }]} />
+        </View>
+      </Animated.View>
+    </Animated.View>
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
-  darkBg: { ...StyleSheet.absoluteFillObject, backgroundColor: '#0A0A0A' },
+const LETTER_SIZE = 52;
+const U_SIZE = 62;
 
-  // ─── Notebook page background ───
-  notebookBg: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: PAPER,
-  },
-  paperTexture: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(200,180,140,0.04)',
-  },
-  ruledLine: {
-    position: 'absolute', left: 0, right: 0,
-    height: 1, backgroundColor: 'rgba(90,150,210,0.15)',
-  },
-  marginLine: {
-    position: 'absolute', left: 48, top: 0, bottom: 0,
-    width: 1.5, backgroundColor: 'rgba(200,55,55,0.18)',
-  },
-  holePunch: {
-    position: 'absolute', left: 14,
-    width: 18, height: 18, borderRadius: 9,
-    backgroundColor: '#E6D5B8', borderWidth: 2,
-    borderColor: '#C4AA78', justifyContent: 'center', alignItems: 'center',
-    zIndex: 2,
-  },
-  holePunchInner: {
-    width: 8, height: 8, borderRadius: 4,
-    backgroundColor: '#D4C4A0', borderWidth: 1, borderColor: '#B8A680',
+const st = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#E8DCBE' },
+
+  bg: { ...StyleSheet.absoluteFillObject, backgroundColor: PAPER },
+
+  // Ruled lines
+  linesWrap: { ...StyleSheet.absoluteFillObject },
+  ruled: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: 'rgba(90,150,210,0.10)' },
+  margin: { position: 'absolute', left: 44, top: 0, bottom: 0, width: 1.5, backgroundColor: 'rgba(200,55,55,0.12)' },
+  hole: {
+    position: 'absolute', left: 14, width: 14, height: 14, borderRadius: 7,
+    backgroundColor: '#E6D5B8', borderWidth: 1.5, borderColor: '#C4AA78',
   },
 
-  // ─── Spiral binding ───
-  spiralCol: {
-    position: 'absolute', left: 6, top: 40, bottom: 40,
-    width: 28, justifyContent: 'space-evenly', zIndex: 6,
+  // Logo icon
+  iconWrap: {
+    position: 'absolute',
+    top: height * 0.32,
+    alignSelf: 'center',
   },
-  spiralCoil: {
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: '#C4AA78', borderWidth: 2.5,
-    borderColor: '#A08E68', justifyContent: 'center', alignItems: 'center',
-  },
-  spiralCoilInner: {
-    width: 10, height: 10, borderRadius: 5,
-    backgroundColor: PAPER, borderWidth: 1.5, borderColor: '#C4AA78',
-  },
-
-  // ─── Bookmark ribbon ───
-  ribbon: {
-    position: 'absolute', right: 36, top: -4, zIndex: 8,
-    alignItems: 'center',
-  },
-  ribbonBody: {
-    width: 22, height: 70,
-    backgroundColor: '#DC2626',
-  },
-  ribbonVCut: { flexDirection: 'row' },
-  ribbonVLeft: {
-    width: 0, height: 0,
-    borderLeftWidth: 11, borderRightWidth: 0, borderBottomWidth: 10,
-    borderLeftColor: '#DC2626', borderRightColor: 'transparent', borderBottomColor: 'transparent',
-  },
-  ribbonVRight: {
-    width: 0, height: 0,
-    borderLeftWidth: 0, borderRightWidth: 11, borderBottomWidth: 10,
-    borderLeftColor: 'transparent', borderRightColor: '#DC2626', borderBottomColor: 'transparent',
-  },
-  ribbonShadow: {
-    position: 'absolute', right: 0, top: 0, bottom: 10,
-    width: 3, backgroundColor: 'rgba(0,0,0,0.15)',
-  },
-
-  // ─── Splash images ───
-  fullImg: {
-    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    width: '100%', height: '100%',
-  },
-
-  // ─── Notebook cover ───
-  coverWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center', alignItems: 'center', zIndex: 20,
-  },
-  cover: {
-    width: width * 0.82, height: height * 0.55,
-    backgroundColor: '#2C1810',
-    borderRadius: 8,
-    borderWidth: 3, borderColor: '#1A0E08',
-    overflow: 'hidden',
+  iconCircle: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: 'rgba(255,214,10,0.08)',
+    borderWidth: 2, borderColor: INK,
+    justifyContent: 'center', alignItems: 'center',
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 6, height: 8 }, shadowOpacity: 0.6, shadowRadius: 12 },
-      android: { elevation: 20 },
+      ios: { shadowColor: INK, shadowOffset: { width: 2, height: 3 }, shadowOpacity: 0.8, shadowRadius: 0 },
+      android: { elevation: 6 },
     }),
   },
-  coverPattern: { ...StyleSheet.absoluteFillObject, opacity: 0.08 },
-  coverStripe: {
-    position: 'absolute', left: 0, right: 0,
-    height: 2, backgroundColor: ACCENT,
-  },
-  coverBorder: {
-    flex: 1, margin: 14,
-    borderWidth: 2, borderColor: 'rgba(255,214,10,0.25)',
-    borderRadius: 4,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  coverLabel: { alignItems: 'center', paddingHorizontal: 24 },
-  coverLabelSmall: {
-    fontSize: 10, fontWeight: '700', color: 'rgba(255,214,10,0.5)',
-    letterSpacing: 4, textTransform: 'uppercase', marginBottom: 12,
-  },
-  coverTitle: {
-    fontSize: 42, fontWeight: '900', color: '#FFFFFF',
-    letterSpacing: -2, lineHeight: 48,
-    textShadowColor: 'rgba(255,214,10,0.3)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 20,
-  },
-  coverTitleAccent: { color: ACCENT },
-  coverDivider: {
-    width: 60, height: 3, backgroundColor: ACCENT,
-    borderRadius: 2, marginVertical: 16, opacity: 0.7,
-  },
-  coverSubtitle: {
-    fontSize: 11, fontWeight: '800', color: 'rgba(255,255,255,0.55)',
-    letterSpacing: 5, textTransform: 'uppercase',
-  },
-  coverCorner: {
+
+  // Line 1: "ScrollU"
+  line1: {
     position: 'absolute',
-    width: 16, height: 16,
-    borderLeftWidth: 2, borderTopWidth: 2,
-    borderColor: 'rgba(255,214,10,0.3)',
+    top: height * 0.32 + 56,
+    flexDirection: 'row', alignItems: 'center',
+    alignSelf: 'center',
+  },
+  bigLetter: {
+    fontSize: LETTER_SIZE, fontWeight: '900', color: INK,
+    letterSpacing: -2,
   },
 
-  // ─── Title overlay ───
-  titleOverlay: {
-    position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
-    zIndex: 50,
-    justifyContent: 'center', alignItems: 'center',
+  // U container with ring
+  uContainer: {
+    width: U_SIZE + 10, height: U_SIZE + 16,
+    alignItems: 'center', justifyContent: 'center',
+    marginHorizontal: -2,
   },
-  title: {
-    fontSize: 52, fontWeight: '900', color: INK,
-    letterSpacing: -2,
-    textShadowColor: 'rgba(255,214,10,0.15)',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 30,
+  uRing: {
+    position: 'absolute',
+    width: 60, height: 60,
   },
-  titleAccent: { color: ACCENT },
-  subtitle: {
-    fontSize: 15, fontWeight: '700', color: '#8A7558',
-    marginTop: 8, letterSpacing: 4, textTransform: 'uppercase',
+  ringDot: {
+    position: 'absolute',
+    width: 5, height: 5, borderRadius: 2.5,
+    marginLeft: -2.5, marginTop: -2.5,
   },
+  uPulseRing: {
+    position: 'absolute',
+    width: 50, height: 50, borderRadius: 25,
+    borderWidth: 2, borderColor: ACCENT,
+  },
+  uLetter: {
+    fontSize: U_SIZE, fontWeight: '900', color: BLUE,
+    fontStyle: 'italic',
+  },
+
+  // Line 2: "Forward"
+  line2: {
+    position: 'absolute',
+    top: height * 0.32 + 56 + LETTER_SIZE + 2,
+    flexDirection: 'row',
+    alignSelf: 'center',
+  },
+  bigLetter2: {
+    fontSize: LETTER_SIZE - 4, fontWeight: '900', color: INK,
+    letterSpacing: -1.5,
+  },
+
+  // Marker underline
+  markerWrap: {
+    position: 'absolute',
+    top: height * 0.32 + 56 + LETTER_SIZE * 2 + 6,
+    alignSelf: 'center',
+    width: width * 0.55,
+    flexDirection: 'row', gap: 4,
+  },
+  markerThick: {
+    flex: 3, height: 7, backgroundColor: 'rgba(255,214,10,0.50)',
+    borderRadius: 4, transform: [{ rotate: '-0.8deg' }],
+  },
+  markerThin: {
+    flex: 2, height: 4, backgroundColor: INK, opacity: 0.08,
+    borderRadius: 3, marginTop: 2,
+  },
+
+  // Tagline
   tagline: {
-    fontSize: 13, fontWeight: '400', fontStyle: 'italic', color: '#A08E68',
-    marginTop: 6, letterSpacing: 0.5,
+    position: 'absolute',
+    top: height * 0.32 + 56 + LETTER_SIZE * 2 + 28,
+    alignSelf: 'center',
+    fontSize: 12, fontWeight: '600', color: '#8A7558',
+    letterSpacing: 3.5, textTransform: 'uppercase',
+    fontStyle: 'italic',
     ...(Platform.OS === 'ios' ? { fontFamily: 'Georgia' } : {}),
   },
-  stampDecor: {
-    marginTop: 24,
-    borderWidth: 3, borderColor: '#DC2626',
-    borderRadius: 4, paddingHorizontal: 16, paddingVertical: 8,
-    opacity: 0.6,
-  },
-  stampText: {
-    fontSize: 16, fontWeight: '900', color: '#DC2626',
-    letterSpacing: 6, textAlign: 'center',
-  },
-  stampTextSmall: {
-    fontSize: 8, fontWeight: '800', color: '#DC2626',
-    letterSpacing: 3, textAlign: 'center', marginTop: 2,
-  },
 
-  // ─── Progress bar ───
-  bar: {
-    position: 'absolute', bottom: 0, left: 0,
-    height: 4, backgroundColor: ACCENT, zIndex: 100,
-    borderTopRightRadius: 2,
+  // Bottom
+  bottom: {
+    position: 'absolute', bottom: 50,
+    alignSelf: 'center', alignItems: 'center', gap: 14,
   },
-  counter: {
-    position: 'absolute', top: 20, right: 20,
-    fontSize: 12, fontWeight: '700', color: '#A08E68',
-    letterSpacing: 2, zIndex: 100,
+  tapeLabel: {
+    backgroundColor: 'rgba(255,214,10,0.35)',
+    paddingHorizontal: 16, paddingVertical: 6,
+    borderRadius: 1, transform: [{ rotate: '-1.5deg' }],
   },
-
-  // ─── Washi tape decoration ───
-  washiTop: {
-    position: 'absolute', top: 50, left: width * 0.1,
-    zIndex: 7, transform: [{ rotate: '-5deg' }],
+  tapeLabelText: {
+    fontSize: 8, fontWeight: '800', color: '#4A3520', letterSpacing: 2.5,
   },
-  washiTape: {
-    width: 70, height: 18,
-    backgroundColor: 'rgba(255,214,10,0.45)',
-    borderRadius: 1,
-  },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  divLine: { height: 1.5, backgroundColor: '#C4AA78', borderRadius: 1 },
+  divDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#C4AA78' },
 });

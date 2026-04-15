@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemeContext, AuthContext } from '../../App';
 import { chatAPI, getWebSocketURL, usersAPI } from '../api';
 import { DoodleDivider, SketchAvatar, StickyNote, NotebookMargin } from '../components/SketchComponents';
+import { PressableCard, EmptyState } from '../components/AnimatedComponents';
 
 // ─── Helpers ──────────────────────────────────────────
 const formatTime = (isoOrDate) => {
@@ -1016,22 +1017,7 @@ export default function ChatScreen({ dmTarget = null, onClose = null }) {
         </View>
       ) : sortedRooms.length === 0 ? (
         <View style={s.centered}>
-          <View style={{ width: 80, height: 80, borderWidth: 2, borderColor: '#2C1810', borderTopLeftRadius: 3, borderTopRightRadius: 20, borderBottomLeftRadius: 20, borderBottomRightRadius: 3, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFCF2', transform: [{ rotate: '3deg' }], marginBottom: 16 }}>
-            <Ionicons name={searchQuery ? 'search-outline' : 'chatbubbles-outline'} size={36} color="#C8BFA8" />
-          </View>
-          <Text style={{ color: '#2C1810', fontWeight: '800', fontSize: 16, marginBottom: 6 }}>
-            {searchQuery ? 'No results found' : 'No conversations yet'}
-          </Text>
-          <Text style={{ color: '#8A7860', fontSize: 13, textAlign: 'center', lineHeight: 20, paddingHorizontal: 30 }}>
-            {searchQuery
-              ? 'Try a different search term'
-              : 'Your inbox is a blank page! Start a conversation and fill it with ideas.'}
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 8 }}>
-            <View style={{ width: 20, height: 1.5, backgroundColor: '#C8BFA8' }} />
-            <View style={{ width: 6, height: 6, borderWidth: 1, borderColor: '#C8BFA8', transform: [{ rotate: '45deg' }] }} />
-            <View style={{ width: 20, height: 1.5, backgroundColor: '#C8BFA8' }} />
-          </View>
+          <EmptyState icon="chatbubbles-outline" title="No conversations" subtitle="Start a new message to begin chatting" />
           {!searchQuery && (
             <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', marginTop: 20, backgroundColor: '#F9D84A', paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1.5, borderColor: '#2C1810', borderTopLeftRadius: 3, borderTopRightRadius: 12, borderBottomLeftRadius: 12, borderBottomRightRadius: 3 }} onPress={() => { setShowNewMessage(true); fetchFollowList(); }}>
               <Ionicons name="add" size={20} color="#2C1810" />

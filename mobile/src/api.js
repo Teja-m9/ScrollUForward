@@ -2,8 +2,8 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Change this to your backend URL
-const API_BASE_URL = 'http://192.168.1.42:8001';
-// Production: const API_BASE_URL = 'https://scrolluforward-production.up.railway.app';
+const API_BASE_URL = 'https://scrolluforward-production.up.railway.app';
+// Local dev: const API_BASE_URL = 'http://192.168.0.135:8001';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -86,6 +86,11 @@ export const pipelineAPI = {
   getRunStatus: (runId) => api.get(`/pipeline/run/${runId}`),
   triggerAgent: (data) => api.post('/pipeline/agent/', data),
   todaysDomains: () => api.get('/pipeline/domains/today/'),
+};
+
+// ─── Quiz (AI-Generated) ────────────────────────────
+export const quizAPI = {
+  generate: (params) => api.get('/quiz/generate', { params }),
 };
 
 // ─── WebSocket ───────────────────────────────────────

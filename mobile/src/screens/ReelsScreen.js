@@ -12,6 +12,8 @@ import { ThemeContext } from '../../App';
 import * as ImagePicker from 'expo-image-picker';
 import { WebView } from 'react-native-webview';
 import { Tape, Stamp, DoodleDivider, PaperCorner, PencilLine, StickerBadge, MarkerUnderline } from '../components/SketchComponents';
+import { PressableCard, HeartBurst, NotebookLoader, SuccessCheck, SkeletonCard, EmptyState } from '../components/AnimatedComponents';
+import { ConfettiBurst, FloatingParticles, InkRippleButton, AnimatedCounter, TypewriterText } from '../components/PremiumAnimations';
 let Video = null;
 let ResizeMode = {};
 try {
@@ -124,6 +126,7 @@ export default function ReelsScreen({ navigation }) {
   const [createDomain, setCreateDomain] = useState('technology');
   const [createMediaUri, setCreateMediaUri] = useState(null);
   const [publishingReel, setPublishingReel] = useState(false);
+  const [showPublishSuccess, setShowPublishSuccess] = useState(false);
 
   useEffect(() => { fetchReels(); fetchStories(); }, []);
 
@@ -329,29 +332,43 @@ export default function ReelsScreen({ navigation }) {
   };
 
   const handlePublishReel = async () => {
-    if (!createTitle.trim()) { Alert.alert('Missing title', 'Please enter a title for your reel.'); return; }
-    if (!createBody.trim() || createBody.trim().length < 50) { Alert.alert('Missing content', 'Please write at least 50 characters of content.'); return; }
+    if (!createTitle.trim()) { Alert.alert('Missing title', 'Please enter a title for your post.'); return; }
+    if (!createBody.trim() || createBody.trim().length < 20) { Alert.alert('Missing content', 'Please write at least 20 characters of content.'); return; }
     setPublishingReel(true);
     try {
-      const reelData = {
-        content_type: 'reel',
+      // Determine content type based on media
+      const hasMedia = !!createMediaUri;
+      const isVideo = hasMedia && createMediaUri.match(/\.(mp4|mov|avi|mkv|webm)$/i);
+      const contentType = isVideo ? 'reel' : 'reel'; // Backend only accepts 'reel', 'article', 'news'
+
+      const postData = {
+        content_type: contentType,
         title: createTitle.trim(),
         body: createBody.trim(),
         domain: createDomain,
-        thumbnail_url: createMediaUri || '',
-        media_url: createMediaUri || '',
+        thumbnail_url: hasMedia && !isVideo ? createMediaUri : '',
+        media_url: hasMedia ? createMediaUri : '',
         citations: [],
         tags: [createDomain],
       };
-      await contentAPI.create(reelData);
+      await contentAPI.create(postData);
       setShowCreateReel(false);
       resetCreateReel();
-      Alert.alert('Published!', 'Your reel has been published.');
+      setShowPublishSuccess(true);
+      setTimeout(() => setShowPublishSuccess(false), 2000);
       fetchReels();
     } catch (e) {
-      console.log('Failed to publish reel', e?.response?.data || e);
-      const detail = e?.response?.data?.detail || 'Failed to publish reel. Please try again.';
-      Alert.alert('Error', typeof detail === 'string' ? detail : JSON.stringify(detail));
+      console.log('Failed to publish', e?.response?.data || e);
+      const detail = e?.response?.data?.detail || '';
+      const msg = typeof detail === 'string' ? detail : JSON.stringify(detail);
+      // If moderation or quality check failed, show friendly message
+      if (msg.includes('moderation') || msg.includes('rejected')) {
+        Alert.alert('Content Review', msg);
+      } else if (msg.includes('quality')) {
+        Alert.alert('Quality Check', 'Please add more content detail (longer body text).');
+      } else {
+        Alert.alert('Error', msg || 'Failed to publish. Please try again.');
+      }
     } finally {
       setPublishingReel(false);
     }
@@ -497,29 +514,28 @@ export default function ReelsScreen({ navigation }) {
   const renderReel = ({ item, index }) => {
     const domainColor = DOMAIN_COLORS[item.domain] || '#3A5A9C';
     const domainIcon = DOMAIN_ICONS[item.domain] || 'bulb';
-    const hasVideo = item.media_url && !item.media_url.startsWith('blob:');
-    const hasImage = (item.thumbnail_url && !item.thumbnail_url.startsWith('blob:')) || (item.media_url && !item.media_url.startsWith('blob:') && !hasVideo);
+    const mediaUrl = item.media_url || '';
+    const thumbUrl = item.thumbnail_url || '';
+    const isVideoUrl = mediaUrl && !mediaUrl.startsWith('blob:') && (mediaUrl.includes('amazonaws') || mediaUrl.includes('s3') || mediaUrl.match(/\.(mp4|mov|webm|avi)($|\?)/i));
+    const hasImage = !isVideoUrl && ((thumbUrl && !thumbUrl.startsWith('blob:') && thumbUrl.startsWith('http')) || (mediaUrl && !mediaUrl.startsWith('blob:') && mediaUrl.match(/\.(jpg|jpeg|png|gif|webp)($|\?)/i)));
+    const hasVideo = isVideoUrl;
     const isQuote = !hasVideo && !hasImage && item.body && item.body.length > 0;
     const contentType = item.content_type || 'reel';
     const tapeColor = tapeColors[index % tapeColors.length];
     const cardRotation = index % 3 === 0 ? -0.5 : index % 3 === 1 ? 0.3 : 0;
 
     return (
-      <TouchableOpacity
-        activeOpacity={0.9}
+      <PressableCard
         style={[styles.reelCard, cardRotation !== 0 && { transform: [{ rotate: `${cardRotation}deg` }] }]}
         onPress={() => handleDoubleTap(item, index)}
       >
         <Tape color={tapeColor} style={{ left: 20 + (index % 4) * 15 }} width={50 + (index % 3) * 10} />
 
-        {/* Double-tap heart animation */}
+        {/* Double-tap heart burst animation */}
         {heartAnimId === item.id && (
-          <Animated.View style={{
-            position: 'absolute', zIndex: 99, alignSelf: 'center', top: '30%',
-            opacity: heartScale, transform: [{ scale: heartScale.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1.2] }) }],
-          }}>
-            <Ionicons name="heart" size={80} color="#ED4956" />
-          </Animated.View>
+          <View style={{ position: 'absolute', zIndex: 99, alignSelf: 'center', top: '25%' }}>
+            <HeartBurst visible={true} size={80} />
+          </View>
         )}
 
         {/* ═══ QUOTE / TEXT POST ═══ */}
@@ -622,14 +638,13 @@ export default function ReelsScreen({ navigation }) {
 
           {/* ═══ INLINE ACTION BAR ═══ */}
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(90,150,210,0.10)', gap: 4 }}>
-            <TouchableOpacity
+            <PressableCard
               style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: likes[item.id] ? '#FEE2E2' : 'transparent' }}
               onPress={() => toggleLike(item.id)}
-              activeOpacity={0.7}
             >
               <Ionicons name={likes[item.id] ? 'heart' : 'heart-outline'} size={18} color={likes[item.id] ? '#DC2626' : '#8A7558'} />
-              <Text style={{ fontSize: 12, fontWeight: '700', color: likes[item.id] ? '#DC2626' : '#8A7558' }}>{formatCount((item.likes_count || 0) + (likes[item.id] ? 1 : 0))}</Text>
-            </TouchableOpacity>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: likes[item.id] ? '#DC2626' : '#8A7558' }}>{formatCount(item.likes_count || 0)}</Text>
+            </PressableCard>
 
             <TouchableOpacity
               style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8 }}
@@ -640,13 +655,12 @@ export default function ReelsScreen({ navigation }) {
               <Text style={{ fontSize: 12, fontWeight: '700', color: '#8A7558' }}>{formatCount(item.comments_count || 0)}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
+            <PressableCard
               style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: saves[item.id] ? '#EFF6FF' : 'transparent' }}
               onPress={() => toggleSave(item.id)}
-              activeOpacity={0.7}
             >
               <Ionicons name={saves[item.id] ? 'bookmark' : 'bookmark-outline'} size={16} color={saves[item.id] ? '#2563EB' : '#8A7558'} />
-            </TouchableOpacity>
+            </PressableCard>
 
             <View style={{ flex: 1 }} />
 
@@ -661,7 +675,7 @@ export default function ReelsScreen({ navigation }) {
 
           <PaperCorner />
         </View>
-      </TouchableOpacity>
+      </PressableCard>
     );
   };
 
@@ -670,6 +684,7 @@ export default function ReelsScreen({ navigation }) {
       <StatusBar barStyle="dark-content" backgroundColor="#FDF6E3" translucent={false} />
       {/* Notebook margin line */}
       <View style={{ position: 'absolute', left: 14, top: 0, bottom: 0, width: 1.5, backgroundColor: 'rgba(200,55,55,0.10)', zIndex: 0 }} pointerEvents="none" />
+      <FloatingParticles count={6} />
 
       {/* Fixed Header — Camera, Notifications, Chat */}
       <View style={styles.header}>
@@ -691,8 +706,11 @@ export default function ReelsScreen({ navigation }) {
           </View>
         </View>
         <View style={styles.headerIcons}>
-          <TouchableOpacity style={styles.headerIconBtn} onPress={handleCamera}>
+          <InkRippleButton style={styles.headerIconBtn} onPress={handleCamera}>
             <Ionicons name="camera-outline" size={18} color="#2C1810" />
+          </InkRippleButton>
+          <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: '#FFD60A', borderColor: '#2C1810' }]} onPress={() => navigation.navigate('Quiz')}>
+            <Ionicons name="bulb" size={16} color="#2C1810" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.navigate('Notifications')}>
             <Ionicons name="heart-outline" size={18} color="#2C1810" />
@@ -739,15 +757,14 @@ export default function ReelsScreen({ navigation }) {
               </ScrollView>
             </View>
           }
-          ListEmptyComponent={!loading && (
-            <View style={{ height: 300, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 }}>
-              <View style={{ width: 90, height: 90, borderWidth: 2.5, borderColor: '#2C1810', borderTopLeftRadius: 2, borderTopRightRadius: 22, borderBottomLeftRadius: 22, borderBottomRightRadius: 2, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFCF2', transform: [{ rotate: '-4deg' }], marginBottom: 18, ...Platform.select({ ios: { shadowColor: '#2C1810', shadowOffset: { width: 4, height: 5 }, shadowOpacity: 1, shadowRadius: 0 }, android: { elevation: 8 } }) }}>
-                <Ionicons name="videocam-outline" size={40} color="#C4AA78" />
-              </View>
-              <Text style={{ color: '#2C1810', fontWeight: '900', fontSize: 18, marginBottom: 6, letterSpacing: -0.5 }}>No reels yet</Text>
-              <Text style={{ color: '#7A6848', fontSize: 13, textAlign: 'center', lineHeight: 20 }}>The stage is empty! Be the first to share a reel and start the show.</Text>
-              <MarkerUnderline color="#FFD60A" width={60} style={{ marginTop: 14 }} />
+          ListEmptyComponent={loading ? (
+            <View style={{ paddingHorizontal: 14 }}>
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
             </View>
+          ) : (
+            <EmptyState icon="videocam-outline" title="No posts yet" subtitle="Pull down to refresh or create your first post!" />
           )}
           ListFooterComponent={loading ? (
             <View style={{ paddingVertical: 20 }}>
@@ -756,6 +773,16 @@ export default function ReelsScreen({ navigation }) {
           ) : null}
         />
       </View>
+
+      {/* ═══ PUBLISH SUCCESS OVERLAY ═══ */}
+      {showPublishSuccess && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(253,246,227,0.92)' }}>
+          <ConfettiBurst visible={true} count={25} />
+          <SuccessCheck visible={true} size={80} color="#059669" />
+          <Text style={{ marginTop: 20, fontSize: 18, fontWeight: '800', color: '#2C1810' }}>Published!</Text>
+          <Text style={{ fontSize: 13, color: '#8A7558', marginTop: 4 }}>Your post is live</Text>
+        </View>
+      )}
 
       {/* Fullscreen Reel Modal — with likes, comments, scroll */}
       <Modal visible={fullscreen} animationType="fade" statusBarTranslucent onRequestClose={exitFullscreen}>
@@ -1172,7 +1199,7 @@ export default function ReelsScreen({ navigation }) {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TextInput style={{ fontSize: 16, lineHeight: 24, color: '#5A4A30', marginTop: 16, minHeight: 150 }} placeholder="Reel script / description (min 50 chars)..." placeholderTextColor="#8A7860" value={createBody} onChangeText={setCreateBody} multiline textAlignVertical="top" />
+            <TextInput style={{ fontSize: 16, lineHeight: 24, color: '#5A4A30', marginTop: 16, minHeight: 150 }} placeholder="Write your post content here (min 20 chars)..." placeholderTextColor="#8A7860" value={createBody} onChangeText={setCreateBody} multiline textAlignVertical="top" />
             <View style={{ height: 120 }} />
           </ScrollView>
         </KeyboardAvoidingView>
