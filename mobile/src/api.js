@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Change this to your backend URL
 const API_BASE_URL = 'https://scrolluforward-production.up.railway.app';
-// Local dev: const API_BASE_URL = 'http://192.168.0.135:8001';
+// Local dev: const API_BASE_URL = 'http://192.168.1.60:8001';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

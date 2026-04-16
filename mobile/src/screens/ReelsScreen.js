@@ -124,11 +124,25 @@ export default function ReelsScreen({ navigation }) {
   const [createTitle, setCreateTitle] = useState('');
   const [createBody, setCreateBody] = useState('');
   const [createDomain, setCreateDomain] = useState('technology');
-  const [createMediaUri, setCreateMediaUri] = useState(null);
+  const [createMediaUris, setCreateMediaUris] = useState([]); // Multi-image support
   const [publishingReel, setPublishingReel] = useState(false);
   const [showPublishSuccess, setShowPublishSuccess] = useState(false);
 
-  useEffect(() => { fetchReels(); fetchStories(); }, []);
+  useEffect(() => {
+    fetchReels(); fetchStories();
+    // Load saved/liked state from AsyncStorage
+    (async () => {
+      try {
+        const savedIds = await AsyncStorage.getItem('saved_content_ids');
+        if (savedIds) {
+          const ids = JSON.parse(savedIds);
+          const savesMap = {};
+          ids.forEach(id => { savesMap[id] = true; });
+          setSaves(savesMap);
+        }
+      } catch {}
+    })();
+  }, []);
 
   const fetchReels = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -259,9 +273,9 @@ export default function ReelsScreen({ navigation }) {
   const handleCreateImagePost = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') { Alert.alert('Permission needed'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.9 });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: 10, quality: 0.9 });
     if (!result.canceled && result.assets?.length > 0) {
-      setCreateMediaUri(result.assets[0].uri);
+      setCreateMediaUris(result.assets.map(a => a.uri));
       setShowCreateReel(true);
     }
   };
@@ -269,31 +283,50 @@ export default function ReelsScreen({ navigation }) {
   const handleCreateStory = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') { Alert.alert('Permission needed'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsEditing: true, quality: 1 });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, selectionLimit: 5, quality: 0.9 });
     if (!result.canceled && result.assets?.length > 0) {
-      const asset = result.assets[0];
-      const isVideo = asset.type === 'video' || (asset.uri && asset.uri.match(/\.(mp4|mov|avi|mkv)$/i));
-      const storySlide = {
-        mediaUri: asset.uri,
-        mediaType: isVideo ? 'video' : 'image',
-        text: '',
-        bg: '#000',
-      };
-      // Save locally and update own story
+      const newSlides = result.assets.map(asset => {
+        const isVideo = asset.type === 'video' || (asset.uri && asset.uri.match(/\.(mp4|mov|avi|mkv)$/i));
+        return {
+          mediaUri: asset.uri,
+          mediaType: isVideo ? 'video' : 'image',
+          text: '',
+          bg: '#000',
+          createdAt: Date.now(),
+        };
+      });
+
+      // Save locally — keep only last 24h
       try {
         const existing = await AsyncStorage.getItem('my_stories');
         const myStories = existing ? JSON.parse(existing) : [];
-        myStories.push({ ...storySlide, createdAt: Date.now() });
-        // Keep only last 24h stories
+        const all = [...myStories, ...newSlides];
         const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-        const filtered = myStories.filter(s => s.createdAt > cutoff);
+        const filtered = all.filter(s => s.createdAt > cutoff);
         await AsyncStorage.setItem('my_stories', JSON.stringify(filtered));
       } catch {}
+
+      // Also push to API so others can see
+      try {
+        for (const slide of newSlides) {
+          await contentAPI.create({
+            content_type: 'story',
+            title: `Story by ${user?.username || 'you'}`,
+            body: slide.text || 'Story',
+            domain: 'technology',
+            thumbnail_url: slide.mediaType === 'image' ? slide.mediaUri : '',
+            media_url: slide.mediaUri,
+            citations: [],
+            tags: ['story'],
+          }).catch(() => {});
+        }
+      } catch {}
+
       setStories(prev => prev.map(s => s.id === 'your_story'
-        ? { ...s, hasStory: true, content: [...(s.content || []), storySlide] }
+        ? { ...s, hasStory: true, content: [...(s.content || []), ...newSlides] }
         : s
       ));
-      Alert.alert('Story Posted!', 'Your story has been shared.');
+      Alert.alert('Story Posted!', `${newSlides.length} story slide${newSlides.length > 1 ? 's' : ''} shared for 24 hours.`);
     }
   };
 
@@ -320,15 +353,15 @@ export default function ReelsScreen({ navigation }) {
   const pickReelMedia = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') { Alert.alert('Permission needed'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos', 'images'], allowsEditing: true, quality: 0.8 });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos', 'images'], allowsMultipleSelection: true, selectionLimit: 10, quality: 0.8 });
     if (!result.canceled && result.assets?.length > 0) {
-      setCreateMediaUri(result.assets[0].uri);
+      setCreateMediaUris(prev => [...prev, ...result.assets.map(a => a.uri)]);
     }
   };
 
   const resetCreateReel = () => {
     setCreateTitle(''); setCreateBody(''); setCreateDomain('technology');
-    setCreateMediaUri(null); setPublishingReel(false);
+    setCreateMediaUris([]); setPublishingReel(false);
   };
 
   const handlePublishReel = async () => {
@@ -337,17 +370,20 @@ export default function ReelsScreen({ navigation }) {
     setPublishingReel(true);
     try {
       // Determine content type based on media
-      const hasMedia = !!createMediaUri;
-      const isVideo = hasMedia && createMediaUri.match(/\.(mp4|mov|avi|mkv|webm)$/i);
-      const contentType = isVideo ? 'reel' : 'reel'; // Backend only accepts 'reel', 'article', 'news'
+      const hasMedia = createMediaUris.length > 0;
+      const firstMedia = createMediaUris[0] || '';
+      const isVideo = hasMedia && firstMedia.match(/\.(mp4|mov|avi|mkv|webm)$/i);
+
+      // For multi-image: store all URIs as JSON in media_url
+      const mediaUrlValue = hasMedia ? (createMediaUris.length > 1 ? JSON.stringify(createMediaUris) : firstMedia) : '';
 
       const postData = {
-        content_type: contentType,
+        content_type: 'reel',
         title: createTitle.trim(),
         body: createBody.trim(),
         domain: createDomain,
-        thumbnail_url: hasMedia && !isVideo ? createMediaUri : '',
-        media_url: hasMedia ? createMediaUri : '',
+        thumbnail_url: hasMedia && !isVideo ? firstMedia : '',
+        media_url: mediaUrlValue,
         citations: [],
         tags: [createDomain],
       };
@@ -516,10 +552,16 @@ export default function ReelsScreen({ navigation }) {
     const domainIcon = DOMAIN_ICONS[item.domain] || 'bulb';
     const mediaUrl = item.media_url || '';
     const thumbUrl = item.thumbnail_url || '';
-    const isVideoUrl = mediaUrl && !mediaUrl.startsWith('blob:') && (mediaUrl.includes('amazonaws') || mediaUrl.includes('s3') || mediaUrl.match(/\.(mp4|mov|webm|avi)($|\?)/i));
-    const hasImage = !isVideoUrl && ((thumbUrl && !thumbUrl.startsWith('blob:') && thumbUrl.startsWith('http')) || (mediaUrl && !mediaUrl.startsWith('blob:') && mediaUrl.match(/\.(jpg|jpeg|png|gif|webp)($|\?)/i)));
+
+    // Parse multi-image: media_url might be a JSON array
+    let multiImages = [];
+    try { if (mediaUrl.startsWith('[')) multiImages = JSON.parse(mediaUrl); } catch {}
+    const hasMultiImages = multiImages.length > 1;
+
+    const isVideoUrl = !hasMultiImages && mediaUrl && !mediaUrl.startsWith('blob:') && !mediaUrl.startsWith('[') && (mediaUrl.includes('amazonaws') || mediaUrl.includes('s3') || mediaUrl.match(/\.(mp4|mov|webm|avi)($|\?)/i));
+    const hasImage = !isVideoUrl && !hasMultiImages && ((thumbUrl && !thumbUrl.startsWith('blob:') && thumbUrl.startsWith('http')) || (mediaUrl && !mediaUrl.startsWith('blob:') && !mediaUrl.startsWith('[') && mediaUrl.match(/\.(jpg|jpeg|png|gif|webp)($|\?)/i)));
     const hasVideo = isVideoUrl;
-    const isQuote = !hasVideo && !hasImage && item.body && item.body.length > 0;
+    const isQuote = !hasVideo && !hasImage && !hasMultiImages && item.body && item.body.length > 0;
     const contentType = item.content_type || 'reel';
     const tapeColor = tapeColors[index % tapeColors.length];
     const cardRotation = index % 3 === 0 ? -0.5 : index % 3 === 1 ? 0.3 : 0;
@@ -538,8 +580,35 @@ export default function ReelsScreen({ navigation }) {
           </View>
         )}
 
-        {/* ═══ QUOTE / TEXT POST ═══ */}
-        {isQuote ? (
+        {/* ═══ MULTI-IMAGE CAROUSEL ═══ */}
+        {hasMultiImages ? (
+          <View style={styles.reelCardMediaWrap}>
+            <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+              {multiImages.map((imgUri, imgIdx) => (
+                <Image key={imgIdx} source={{ uri: imgUri }} style={{ width: width - 32, height: 230 }} resizeMode="cover" />
+              ))}
+            </ScrollView>
+            {/* Image counter */}
+            <View style={{ position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Ionicons name="images" size={12} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{multiImages.length}</Text>
+            </View>
+            {/* Stats overlay */}
+            <View style={{ position: 'absolute', bottom: 10, right: 10, flexDirection: 'row', gap: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Ionicons name="heart-outline" size={14} color="#fff" />
+                <Text style={{ fontSize: 11, color: '#fff', fontWeight: '600' }}>{formatCount(item.likes_count || 0)}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Ionicons name="chatbubble-outline" size={14} color="#fff" />
+                <Text style={{ fontSize: 11, color: '#fff', fontWeight: '600' }}>{formatCount(item.comments_count || 0)}</Text>
+              </View>
+            </View>
+          </View>
+        ) :
+
+        /* ═══ QUOTE / TEXT POST ═══ */
+        isQuote ? (
           <View style={[styles.reelCardMediaWrap, { backgroundColor: domainColor + '12', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 24 }]}>
             {/* Ruled lines background */}
             {Array.from({ length: 8 }, (_, i) => (
@@ -1181,16 +1250,38 @@ export default function ReelsScreen({ navigation }) {
             </TouchableOpacity>
           </View>
           <ScrollView style={{ flex: 1, paddingHorizontal: 20 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            <TouchableOpacity style={{ marginTop: 20, height: 200, borderWidth: 1.5, borderColor: '#2C1810', borderStyle: 'dashed', backgroundColor: '#F8F6F0', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderTopLeftRadius: 3, borderTopRightRadius: 10, borderBottomLeftRadius: 3, borderBottomRightRadius: 10 }} onPress={pickReelMedia}>
-              {createMediaUri ? (
-                <Image source={{ uri: createMediaUri }} style={{ width: '100%', height: '100%' }} />
-              ) : (
+            {/* Multi-image carousel or add media button */}
+            {createMediaUris.length > 0 ? (
+              <View style={{ marginTop: 20 }}>
+                <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={{ height: 220, borderWidth: 1.5, borderColor: '#2C1810', borderRadius: 10, overflow: 'hidden' }}>
+                  {createMediaUris.map((uri, idx) => (
+                    <View key={idx} style={{ width: width - 40, height: 220 }}>
+                      <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                      <TouchableOpacity
+                        style={{ position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}
+                        onPress={() => setCreateMediaUris(prev => prev.filter((_, i) => i !== idx))}
+                      >
+                        <Ionicons name="close" size={16} color="#fff" />
+                      </TouchableOpacity>
+                      <View style={{ position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{idx + 1}/{createMediaUris.length}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10, paddingVertical: 10, borderWidth: 1.5, borderColor: '#C4AA78', borderRadius: 8, borderStyle: 'dashed' }} onPress={pickReelMedia}>
+                  <Ionicons name="add-circle-outline" size={18} color="#8A7860" />
+                  <Text style={{ fontSize: 13, color: '#8A7860', fontWeight: '600' }}>Add more ({createMediaUris.length}/10)</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={{ marginTop: 20, height: 200, borderWidth: 1.5, borderColor: '#2C1810', borderStyle: 'dashed', backgroundColor: '#F8F6F0', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderTopLeftRadius: 3, borderTopRightRadius: 10, borderBottomLeftRadius: 3, borderBottomRightRadius: 10 }} onPress={pickReelMedia}>
                 <View style={{ alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="videocam-outline" size={36} color="#8A7860" />
-                  <Text style={{ fontSize: 14, color: '#8A7860' }}>Add video or thumbnail</Text>
+                  <Ionicons name="images-outline" size={36} color="#8A7860" />
+                  <Text style={{ fontSize: 14, color: '#8A7860' }}>Add photos or video (up to 10)</Text>
                 </View>
-              )}
-            </TouchableOpacity>
+              </TouchableOpacity>
+            )}
             <TextInput style={{ fontSize: 22, fontWeight: '700', color: '#2C1810', marginTop: 20 }} placeholder="Reel title" placeholderTextColor="#8A7860" value={createTitle} onChangeText={setCreateTitle} />
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 16 }} contentContainerStyle={{ gap: 8 }}>
               {CREATE_DOMAINS.map(d => (
