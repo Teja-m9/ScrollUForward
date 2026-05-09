@@ -5,12 +5,13 @@ Questions are unique per request, never repeat for the same user.
 import json
 import logging
 import asyncio
-from fastapi import APIRouter, HTTPException, Depends, Query as QueryParam
+from fastapi import APIRouter, HTTPException, Depends, Query as QueryParam, Request
 from pydantic import BaseModel
 from typing import List, Optional
 from groq import Groq
 from config import GROQ_API_KEY, GROQ_MODEL_PRIMARY, GROQ_MODEL_FAST
 from auth import get_current_user
+from rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
@@ -46,17 +47,41 @@ DOMAIN_CONTEXTS = {
 
 
 @router.get("/generate", response_model=QuizResponse)
+@limiter.limit("60/hour")
 async def generate_quiz(
+    request: Request,
     domain: str = QueryParam(..., description="Quiz domain"),
     count: int = QueryParam(5, ge=1, le=10, description="Number of questions"),
     difficulty: str = QueryParam("mixed", description="easy, medium, hard, or mixed"),
     exclude: str = QueryParam("", description="Comma-separated question hashes to exclude"),
     current_user: dict = Depends(get_current_user),
 ):
-    """Generate unique quiz questions using Groq AI. Never repeats."""
+    """Generate unique quiz questions. Stage 4: read from pre-generated Redis
+    pool first, fall back to inline Groq only when pool is empty (cold start)."""
 
     if domain not in DOMAIN_CONTEXTS:
         raise HTTPException(status_code=400, detail=f"Unknown domain: {domain}. Valid: {list(DOMAIN_CONTEXTS.keys())}")
+
+    # ── Try Redis-pre-generated pool first ──
+    try:
+        import json as _json
+        import random as _random
+        from cache import get_redis
+        r = await get_redis()
+        if r is not None:
+            pool = await r.lrange(f"quiz:pool:{domain}", 0, -1)
+            if pool and len(pool) >= count:
+                sample = _random.sample(pool, count)
+                parsed = []
+                for raw in sample:
+                    try:
+                        parsed.append(QuizQuestion(**_json.loads(raw)))
+                    except Exception:
+                        continue
+                if len(parsed) >= count:
+                    return QuizResponse(domain=domain, questions=parsed)
+    except Exception as e:
+        logger.warning(f"quiz pool read failed, falling back to inline Groq: {e}")
 
     context = DOMAIN_CONTEXTS[domain]
     excluded_list = [e.strip() for e in exclude.split(",") if e.strip()]

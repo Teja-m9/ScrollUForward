@@ -33,3 +33,15 @@ tenacity>=8.2.0
 # Content moderation
 openai>=1.0.0
 better-profanity>=0.7
+
+# ─── Scaling stack (10k+ MAU) ───
+# Stage 1: Redis cache + rate limiting
+redis>=5.0.0
+slowapi>=0.1.9
+
+# Stage 4: async background queue
+arq>=0.25.0
+
+# Stage 5: observability
+sentry-sdk[fastapi]>=2.0.0
+prometheus-client>=0.20.0

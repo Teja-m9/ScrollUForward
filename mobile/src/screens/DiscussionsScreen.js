@@ -9,6 +9,7 @@ import { AuthContext, ThemeContext } from '../../App';
 import { discussionsAPI } from '../api';
 import { Tape, Stamp, DoodleDivider, PaperCorner, StickyNote, SketchSectionHeader } from '../components/SketchComponents';
 import { PressableCard, EmptyState, FadeInView } from '../components/AnimatedComponents';
+import { getCached, setCached } from '../utils/clientCache';
 
 const { width } = Dimensions.get('window');
 
@@ -121,10 +122,18 @@ export default function DiscussionsScreen() {
 
   const currentMessages = selectedDiscussion ? (allMessages[selectedDiscussion.id] || []) : [];
 
-  // Fetch discussions from API, fallback to demo
+  // Fetch discussions from API, with stale-while-revalidate cache
   useEffect(() => {
     (async () => {
-      setLoadingDisc(true);
+      // Stage 1: instant paint from cache
+      const cached = await getCached('discussions:list');
+      if (cached) {
+        setDiscussions(cached);
+        setLoadingDisc(false);
+      } else {
+        setLoadingDisc(true);
+      }
+      // Stage 2: background refresh
       try {
         const res = await discussionsAPI.list({ limit: 20 });
         const apiDiscs = (res.data || []).map(d => ({
@@ -138,6 +147,7 @@ export default function DiscussionsScreen() {
           speakers: [d.creator_username || 'unknown'],
         }));
         setDiscussions(apiDiscs);
+        setCached('discussions:list', apiDiscs).catch(() => {});
       } catch {
         setDiscussions([]);
       }

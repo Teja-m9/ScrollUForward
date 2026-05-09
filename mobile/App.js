@@ -1,6 +1,9 @@
+import 'react-native-gesture-handler';
 import React, { useState, useEffect, createContext, useContext } from 'react';
-import { View, StyleSheet, StatusBar, TouchableOpacity, Text, Platform } from 'react-native';
+import { View, StyleSheet, StatusBar, TouchableOpacity, Text, Platform, Alert } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setAuthFailureHandler } from './src/api';
 import SplashScreen from './src/screens/SplashScreen';
 import { NavigationContainer } from '@react-navigation/native';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
@@ -19,6 +22,14 @@ import ProfileScreen from './src/screens/ProfileScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import QuizScreen from './src/screens/QuizScreen';
+import AIStudyBuddyScreen from './src/screens/AIStudyBuddyScreen';
+import DailyChallengeScreen from './src/screens/DailyChallengeScreen';
+import LiveMapScreen from './src/screens/LiveMapScreen';
+import FlashcardScreen from './src/screens/FlashcardScreen';
+import MapScreen from './src/screens/MapScreen';
+import BrainMapScreen from './src/screens/BrainMapScreen';
+import BattleScreen from './src/screens/BattleScreen';
+import TeamScreen from './src/screens/TeamScreen';
 
 // Theme
 import { SketchTheme } from './src/theme';
@@ -33,7 +44,7 @@ const Stack = createNativeStackNavigator();
 // ─── Tab config ───
 const TABS = [
   { name: 'Home', icon: 'play-circle', iconOutline: 'play-circle-outline', color: '#FFD60A' },
-  { name: 'Search', icon: 'search', iconOutline: 'search-outline', color: '#7DD3FC' },
+  { name: 'Search', icon: 'compass', iconOutline: 'compass-outline', color: '#7DD3FC' },
   { name: 'Articles', icon: 'book', iconOutline: 'book-outline', color: '#6EE7B7' },
   { name: 'Discuss', icon: 'chatbubbles', iconOutline: 'chatbubbles-outline', color: '#C4B5FD' },
   { name: 'News', icon: 'newspaper', iconOutline: 'newspaper-outline', color: '#FDBA74' },
@@ -197,6 +208,20 @@ export default function App() {
     } catch (e) {}
   };
 
+  // Auto-logout when any API call returns 401 (token expired / revoked).
+  // Without this the app silently shows blank screens on stale tokens.
+  useEffect(() => {
+    setAuthFailureHandler(() => {
+      if (!isAuthenticated) return;
+      handleLogout();
+      Alert.alert(
+        'Session expired',
+        'Please log back in to continue.',
+        [{ text: 'OK' }]
+      );
+    });
+  }, [isAuthenticated]);
+
   if (showSplash) {
     return <SplashScreen onFinish={() => setShowSplash(false)} />;
   }
@@ -220,25 +245,35 @@ export default function App() {
   const themeContextValue = { theme, isDarkTheme, toggleTheme: () => setIsDarkTheme(prev => !prev) };
 
   return (
-    <ThemeContext.Provider value={themeContextValue}>
-      <AuthContext.Provider value={authContextValue}>
-        <NavigationContainer>
-          <StatusBar barStyle={theme.statusBarStyle} backgroundColor={theme.background} />
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="MainTabs" component={MainTabs} />
-            <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ animation: 'slide_from_right' }} />
-            <Stack.Screen name="UserProfile" component={ProfileScreen} options={{ animation: 'slide_from_right' }} />
-            <Stack.Screen name="Quiz" component={QuizScreen} options={{ animation: 'slide_from_bottom' }} />
-          </Stack.Navigator>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeContext.Provider value={themeContextValue}>
+        <AuthContext.Provider value={authContextValue}>
+          <NavigationContainer>
+            <StatusBar barStyle={theme.statusBarStyle} backgroundColor={theme.background} />
+            <Stack.Navigator screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="MainTabs" component={MainTabs} />
+              <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ animation: 'slide_from_right' }} />
+              <Stack.Screen name="UserProfile" component={ProfileScreen} options={{ animation: 'slide_from_right' }} />
+              <Stack.Screen name="Quiz" component={QuizScreen} options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="AIStudyBuddy" component={AIStudyBuddyScreen} options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="DailyChallenge" component={DailyChallengeScreen} options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="LiveMap" component={LiveMapScreen} options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="Flashcards" component={FlashcardScreen} options={{ animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="Map" component={MapScreen} options={{ animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="BrainMap" component={BrainMapScreen} options={{ animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="Battle" component={BattleScreen} options={{ animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="Teams" component={TeamScreen} options={{ animation: 'slide_from_right' }} />
+            </Stack.Navigator>
 
-          {showChat && (
-            <View style={[styles.overlay, { backgroundColor: theme.background }]}>
-              <ChatScreen dmTarget={dmTarget} onClose={() => { setShowChat(false); setDmTarget(null); }} />
-            </View>
-          )}
-        </NavigationContainer>
-      </AuthContext.Provider>
-    </ThemeContext.Provider>
+            {showChat && (
+              <View style={[styles.overlay, { backgroundColor: theme.background }]}>
+                <ChatScreen dmTarget={dmTarget} onClose={() => { setShowChat(false); setDmTarget(null); }} />
+              </View>
+            )}
+          </NavigationContainer>
+        </AuthContext.Provider>
+      </ThemeContext.Provider>
+    </GestureHandlerRootView>
   );
 }
 

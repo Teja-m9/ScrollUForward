@@ -14,6 +14,7 @@ import { WebView } from 'react-native-webview';
 import { Tape, Stamp, DoodleDivider, PaperCorner, PencilLine, StickerBadge, MarkerUnderline } from '../components/SketchComponents';
 import { PressableCard, HeartBurst, NotebookLoader, SuccessCheck, SkeletonCard, EmptyState } from '../components/AnimatedComponents';
 import { ConfettiBurst, FloatingParticles, InkRippleButton, AnimatedCounter, TypewriterText } from '../components/PremiumAnimations';
+import { setCached, getCached } from '../utils/clientCache';
 let Video = null;
 let ResizeMode = {};
 try {
@@ -129,8 +130,19 @@ export default function ReelsScreen({ navigation }) {
   const [showPublishSuccess, setShowPublishSuccess] = useState(false);
 
   useEffect(() => {
-    fetchReels(); fetchStories();
-    // Load saved/liked state from AsyncStorage
+    // Stage 1: hydrate from local cache for INSTANT first paint
+    (async () => {
+      const cached = await getCached('reels:home');
+      if (cached) {
+        setReels(cached);
+        setLoading(false);
+      }
+      // Stage 2: refresh in background
+      fetchReels(true);
+      fetchStories();
+    })();
+
+    // Saved-state restore (unchanged)
     (async () => {
       try {
         const savedIds = await AsyncStorage.getItem('saved_content_ids');
@@ -147,10 +159,20 @@ export default function ReelsScreen({ navigation }) {
   const fetchReels = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      // Fetch all content types — reels, images, quotes, articles
-      const res = await contentAPI.list({ limit: 30 });
-      const shuffled = (res.data || []).sort(() => Math.random() - 0.5);
+      const res = await contentAPI.list({ limit: 50 });
+      const all = res.data || [];
+      const withMedia = all.filter(r =>
+        (r.thumbnail_url && r.thumbnail_url.startsWith('http') && !r.thumbnail_url.includes('bbc.com') && !r.thumbnail_url.includes('nature.com')) ||
+        (r.media_url && r.media_url.startsWith('http') && (r.media_url.includes('amazonaws') || r.media_url.includes('s3') || r.media_url.match(/\.(mp4|jpg|jpeg|png|gif|webp)/i) || r.media_url.startsWith('[')))
+      );
+      const textOnly = all.filter(r =>
+        !withMedia.includes(r) && r.body && r.body.length > 30
+      );
+      const combined = [...withMedia, ...textOnly].slice(0, 30);
+      const shuffled = combined.sort(() => Math.random() - 0.5);
       setReels(shuffled);
+      // Persist for instant load next time
+      setCached('reels:home', shuffled).catch(() => {});
     } catch (e) { console.log('Failed to fetch reels', e); }
     finally { if (!silent) setLoading(false); }
   };

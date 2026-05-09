@@ -165,7 +165,7 @@ async def create_comment(
 
 
 @router.get("/{discussion_id}/comments", response_model=list[CommentResponse])
-async def list_comments(discussion_id: str, limit: int = QueryParam(50)):
+async def list_comments(discussion_id: str, limit: int = QueryParam(50, ge=1, le=100)):
     db = get_databases()
     try:
         result = db.list_documents(

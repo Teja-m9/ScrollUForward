@@ -11,6 +11,7 @@ import { AuthContext, ThemeContext } from '../../App';
 import { Tape, Stamp, DoodleDivider, PaperCorner, SketchSectionHeader, StickyNote } from '../components/SketchComponents';
 import { PressableCard, EmptyState, FadeInView } from '../components/AnimatedComponents';
 import { InkRippleButton, FloatingParticles } from '../components/PremiumAnimations';
+import { getCached, setCached } from '../utils/clientCache';
 
 const { width } = Dimensions.get('window');
 const HALF = (width - 48) / 2;
@@ -79,12 +80,20 @@ export default function NewsScreen() {
   useEffect(() => { fetchNews(); }, [selectedCategory]);
 
   const fetchNews = async () => {
-    setLoading(true);
+    const cacheKey = `news:${selectedCategory}`;
+    const cached = await getCached(cacheKey);
+    if (cached) {
+      setNews(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     try {
       const params = { content_type: 'news', limit: 20 };
       if (selectedCategory !== 'all') params.domain = selectedCategory;
       const res = await contentAPI.list(params);
       setNews(res.data);
+      setCached(cacheKey, res.data || []).catch(() => {});
     } catch (e) { console.log('Fetch news failed', e); }
     finally { setLoading(false); setRefreshing(false); }
   };
@@ -330,21 +339,20 @@ export default function NewsScreen() {
 
             <DoodleDivider style={{ marginHorizontal: 20, marginVertical: 4 }} />
 
-            {/* VIEW ALL row */}
-            <View style={s.viewAllRow}>
-              <View style={{ flex: 1 }}>
-                {stories[0] && (
-                  <TouchableOpacity onPress={() => openDetail(stories[0])}>
-                    <Image source={{ uri: getNewsImage(stories[0]) }} style={s.storyImg} />
-                    <Text style={s.storyTitle} numberOfLines={2}>{stories[0].title}</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              <View style={s.viewAllBox}>
-                <Text style={s.viewAllLabel}>VIEW ALL</Text>
-                <Ionicons name="arrow-forward" size={18} color="#2C1810" />
-              </View>
-            </View>
+            {/* Lead story */}
+            {stories[0] && (
+              <TouchableOpacity style={s.wideStory} onPress={() => openDetail(stories[0])}>
+                <Image source={{ uri: getNewsImage(stories[0]) }} style={s.wideStoryImg} />
+                <View style={s.wideStoryInfo}>
+                  <View style={s.tagDateRow}>
+                    <View style={s.tag}><Text style={s.tagText}>{(stories[0].domain || 'NEWS').toUpperCase()}</Text></View>
+                    <Text style={s.dateText}>{fmtDate()}</Text>
+                  </View>
+                  <Text style={s.wideStoryTitle} numberOfLines={3}>{stories[0].title}</Text>
+                  <Text style={s.featuredAuthor}>Written by <Text style={{ fontStyle: 'italic' }}>{stories[0].author_username || 'ScrollUForward'}</Text></Text>
+                </View>
+              </TouchableOpacity>
+            )}
 
             {/* Second story row */}
             {stories[1] && (
@@ -447,13 +455,6 @@ const s = StyleSheet.create({
   dateText: { fontSize: 11, color: '#8A7860', fontWeight: '500' },
   featuredTitle: { fontSize: 22, fontWeight: '800', color: '#2C1810', lineHeight: 28, marginBottom: 8 },
   featuredAuthor: { fontSize: 12, color: '#8A7860' },
-
-  // View all + story grid
-  viewAllRow: { flexDirection: 'row', paddingHorizontal: 20, gap: 12, marginBottom: 20 },
-  storyImg: { width: '100%', height: 140, marginBottom: 8, borderWidth: 1.5, borderColor: '#2C1810', borderTopLeftRadius: 3, borderTopRightRadius: 12, borderBottomLeftRadius: 12, borderBottomRightRadius: 3 },
-  storyTitle: { fontSize: 14, fontWeight: '700', color: '#2C1810', lineHeight: 20 },
-  viewAllBox: { width: 100, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9D84A', gap: 6, borderWidth: 1.5, borderColor: '#2C1810', borderTopLeftRadius: 3, borderTopRightRadius: 12, borderBottomLeftRadius: 12, borderBottomRightRadius: 3 },
-  viewAllLabel: { fontSize: 12, fontWeight: '800', color: '#2C1810', letterSpacing: 1 },
 
   // Wide story
   wideStory: { flexDirection: 'row', paddingHorizontal: 20, gap: 14, marginBottom: 24 },

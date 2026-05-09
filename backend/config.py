@@ -42,7 +42,10 @@ AWS_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY", os.getenv("AWS_ACCESS_KEY_ID", ""
 AWS_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_KEY", os.getenv("AWS_SECRET_ACCESS_KEY", ""))
 AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET", "scrolluforward-media")
 AWS_REGION = os.getenv("S3_REGION", os.getenv("AWS_REGION", "ap-south-1"))
-CLOUDFRONT_DOMAIN = os.getenv("CLOUDFRONT_DOMAIN", "cdn.scrolluforward.com")
+CLOUDFRONT_DOMAIN = os.getenv("CLOUDFRONT_DOMAIN", "")
+# New Stage 2 name (preferred). Falls back to legacy CLOUDFRONT_DOMAIN.
+MEDIA_CDN_DOMAIN = os.getenv("MEDIA_CDN_DOMAIN", "").strip() or CLOUDFRONT_DOMAIN.strip()
+USE_CDN = bool(MEDIA_CDN_DOMAIN)
 
 # ─── Groq Model Config ────────────────────────────────────
 GROQ_MODEL_PRIMARY = "llama-3.3-70b-versatile"

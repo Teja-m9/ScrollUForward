@@ -9,6 +9,7 @@ from s3_client import get_s3_client, PRESIGN_EXPIRY
 from config import AWS_S3_BUCKET
 from moderation import moderate_content, moderate_comment
 from strike_system import check_user_ban_status, record_violation
+from cache import cached, cache_invalidate
 import json
 import re
 import logging
@@ -117,6 +118,8 @@ async def create_content(content: ContentCreate, current_user: dict = Depends(ge
 
 
 @router.get("/", response_model=list[ContentResponse])
+@cached(ttl=30, key_fn=lambda content_type=None, domain=None, limit=20, offset=0:
+        f"content:list:{content_type or 'all'}:{domain or 'all'}:{limit}:{offset}")
 async def list_content(
     content_type: str = QueryParam(None),
     domain: str = QueryParam(None),
@@ -235,7 +238,7 @@ async def interact_with_content(
 
 @router.get("/saved")
 async def get_saved_content(
-    limit: int = QueryParam(50),
+    limit: int = QueryParam(50, ge=1, le=100),
     current_user: dict = Depends(get_current_user),
 ):
     """Return all content the current user has saved."""
@@ -287,8 +290,9 @@ async def get_saved_content(
 
 
 @router.get("/feed/personalized")
+@cached(ttl=30, key_fn=lambda limit, current_user: f"feed:{current_user['sub']}:{limit}")
 async def get_personalized_feed(
-    limit: int = QueryParam(20),
+    limit: int = QueryParam(20, ge=1, le=100),
     current_user: dict = Depends(get_current_user)
 ):
     db = get_databases()
@@ -316,7 +320,7 @@ async def get_personalized_feed(
 
 
 @router.get("/{content_id}/comments", response_model=list[ContentCommentResponse])
-async def get_content_comments(content_id: str, limit: int = QueryParam(50)):
+async def get_content_comments(content_id: str, limit: int = QueryParam(50, ge=1, le=100)):
     db = get_databases()
     try:
         result = db.list_documents(

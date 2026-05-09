@@ -1,4 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends, Query as QueryParam
+import base64
+import logging
+from fastapi import APIRouter, HTTPException, Depends, Query as QueryParam, Request
+from pydantic import BaseModel, Field
 from appwrite.query import Query
 from appwrite.id import ID
 from auth import get_current_user
@@ -7,7 +10,11 @@ from schemas import ChatRoomCreate, ChatRoomResponse, MessageCreate, MessageResp
 from config import APPWRITE_DATABASE_ID, COLLECTION_CHAT_ROOMS, COLLECTION_MESSAGES, COLLECTION_USERS
 from moderation import moderate_comment
 from strike_system import check_user_ban_status, record_violation
+from s3_client import upload_chat_attachment
+from rate_limit import limiter
 import json
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -59,7 +66,9 @@ async def list_chat_rooms(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/messages", response_model=MessageResponse)
-async def send_message(msg: MessageCreate, current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def send_message(request: Request, msg: MessageCreate, current_user: dict = Depends(get_current_user)):
+    from realtime import manager  # local import to avoid circular at module load
     db = get_databases()
     doc_id = ID.unique()
 
@@ -112,6 +121,29 @@ async def send_message(msg: MessageCreate, current_user: dict = Depends(get_curr
             }
         )
 
+        # Real-time broadcast to all OTHER participants of the room
+        try:
+            room_doc = db.get_document(
+                database_id=APPWRITE_DATABASE_ID,
+                collection_id=COLLECTION_CHAT_ROOMS,
+                document_id=msg.chat_room_id,
+            )
+            participants = json.loads(room_doc.get("participants", "[]"))
+            saved = _doc_to_message(doc).model_dump() if hasattr(_doc_to_message(doc), "model_dump") else dict(_doc_to_message(doc))
+            payload = {
+                "type": "new_message",
+                "room_id": msg.chat_room_id,
+                "message": saved,
+            }
+            sender_id = current_user["sub"]
+            for pid in participants:
+                if pid and pid != sender_id:
+                    await manager.send_personal(pid, payload)
+        except Exception as broadcast_err:
+            # Broadcast failure shouldn't fail the send — message is already saved
+            import logging
+            logging.getLogger(__name__).warning(f"chat: broadcast failed: {broadcast_err}")
+
         return _doc_to_message(doc)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -120,7 +152,7 @@ async def send_message(msg: MessageCreate, current_user: dict = Depends(get_curr
 @router.get("/messages/{room_id}", response_model=list[MessageResponse])
 async def list_messages(
     room_id: str,
-    limit: int = QueryParam(50),
+    limit: int = QueryParam(50, ge=1, le=100),
     current_user: dict = Depends(get_current_user)
 ):
     db = get_databases()
@@ -137,6 +169,43 @@ async def list_messages(
         return [_doc_to_message(d) for d in result["documents"]]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class ChatUploadRequest(BaseModel):
+    base64: str = Field(..., description="Raw base64 (no data: prefix)")
+    content_type: str = Field("image/jpeg", description="MIME type")
+    ext: str = Field("jpg", description="File extension")
+
+
+@router.post("/upload")
+async def upload_attachment(
+    body: ChatUploadRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Decode a base64 attachment from a chat client and store it on S3.
+    Returns a presigned URL the recipient can fetch and render."""
+    try:
+        raw = body.base64
+        if "," in raw and raw[:30].lower().startswith("data:"):
+            raw = raw.split(",", 1)[1]
+        file_bytes = base64.b64decode(raw)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid base64: {e}")
+
+    if len(file_bytes) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Attachment too large (max 25 MB)")
+
+    try:
+        url = upload_chat_attachment(
+            file_bytes=file_bytes,
+            user_id=current_user["sub"],
+            ext=(body.ext or "bin").lower().lstrip("."),
+            content_type=body.content_type or "application/octet-stream",
+        )
+        return {"url": url, "size": len(file_bytes)}
+    except Exception as e:
+        logger.error(f"chat upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
 
 
 def _doc_to_room(doc: dict) -> ChatRoomResponse:

@@ -399,6 +399,26 @@ export default function QuizScreen({ navigation, route }) {
             </View>
           </View>
 
+          {/* Battle CTA — top of select screen */}
+          <TouchableOpacity
+            style={s.battleCta}
+            onPress={() => navigation.navigate('Battle')}
+            activeOpacity={0.88}
+          >
+            <View style={s.battleCtaLeft}>
+              <View style={s.battleCtaIcon}>
+                <Ionicons name="flash" size={22} color="#fff" />
+              </View>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.battleCtaTitle}>Knowledge Battle · 1v1</Text>
+              <Text style={s.battleCtaSub}>Live duel · ranked · speed wins</Text>
+            </View>
+            <View style={s.battleCtaArrow}>
+              <Ionicons name="chevron-forward" size={18} color={INK} />
+            </View>
+          </TouchableOpacity>
+
           {/* History button */}
           {quizHistory.length > 0 && (
             <TouchableOpacity style={s.historyBtn} onPress={() => setPhase('history')}>
@@ -637,11 +657,11 @@ export default function QuizScreen({ navigation, route }) {
 
       {/* Progress dots */}
       <View style={s.progressDots}>
-        {quiz.questions.map((_, i) => (
+        {activeQuestions.map((_, i) => (
           <View key={i} style={[
             s.dot,
-            i < questionIdx && answers[i] === quiz.questions[i].correct && s.dotCorrect,
-            i < questionIdx && answers[i] !== quiz.questions[i].correct && s.dotWrong,
+            i < questionIdx && answers[i] === activeQuestions[i].correct && s.dotCorrect,
+            i < questionIdx && answers[i] !== activeQuestions[i].correct && s.dotWrong,
             i === questionIdx && s.dotCurrent,
           ]} />
         ))}
@@ -862,6 +882,34 @@ const s = StyleSheet.create({
     borderRadius: 10, padding: 12, marginTop: 12,
   },
   explanationText: { fontSize: 13, color: '#4A3520', lineHeight: 19, flex: 1, fontStyle: 'italic' },
+
+  // ─── Battle CTA ───
+  battleCta: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginHorizontal: 20, marginBottom: 14,
+    paddingHorizontal: 14, paddingVertical: 12,
+    backgroundColor: '#FFFCF2',
+    borderWidth: 2.5, borderColor: INK,
+    borderTopLeftRadius: 4, borderTopRightRadius: 16,
+    borderBottomLeftRadius: 16, borderBottomRightRadius: 4,
+    ...Platform.select({
+      ios: { shadowColor: INK, shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1, shadowRadius: 0 },
+      android: { elevation: 5 },
+    }),
+  },
+  battleCtaLeft: { width: 50, alignItems: 'center' },
+  battleCtaIcon: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#DC2626', borderWidth: 2, borderColor: INK,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  battleCtaTitle: { fontSize: 14, fontWeight: '900', color: INK, letterSpacing: 0.3 },
+  battleCtaSub: { fontSize: 11, color: '#8A7558', fontStyle: 'italic', marginTop: 2 },
+  battleCtaArrow: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: ACCENT, borderWidth: 1.5, borderColor: INK,
+    justifyContent: 'center', alignItems: 'center',
+  },
 
   // ─── History Button ───
   historyBtn: {

@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { ThemeContext, AuthContext } from '../../App';
 import { chatAPI, getWebSocketURL, usersAPI } from '../api';
 import { DoodleDivider, SketchAvatar, StickyNote, NotebookMargin } from '../components/SketchComponents';
@@ -182,6 +183,31 @@ export default function ChatScreen({ dmTarget = null, onClose = null }) {
   // New message modal
   const [showNewMessage, setShowNewMessage] = useState(false);
   const [newMsgSearch, setNewMsgSearch] = useState('');
+
+  // Cache: userId → profile (so DM rooms can show real names)
+  const [profileCache, setProfileCache] = useState({});
+  // Emoji tray toggle for chat input
+  const [showEmojiTray, setShowEmojiTray] = useState(false);
+  // Spinner while uploading a chat attachment
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+
+  // Resolve the OTHER participant's userId from a `dm_<a>_<b>` style room name
+  const resolveOtherUserId = useCallback((room) => {
+    const name = room?.name || '';
+    if (!name.startsWith('dm_')) return null;
+    const ids = name.replace('dm_', '').split('_');
+    const meId = currentUser?.user_id || currentUser?.sub;
+    return ids.find((id) => id && id !== meId) || null;
+  }, [currentUser]);
+
+  // Lazily fetch a user's profile and cache it
+  const ensureProfile = useCallback((uid) => {
+    if (!uid || profileCache[uid] !== undefined) return;
+    setProfileCache((prev) => ({ ...prev, [uid]: null }));   // mark "in flight"
+    usersAPI.getProfile(uid)
+      .then((res) => setProfileCache((prev) => ({ ...prev, [uid]: res.data || {} })))
+      .catch(() => setProfileCache((prev) => ({ ...prev, [uid]: {} })));
+  }, [profileCache]);
   const [followList, setFollowList] = useState([]);
   const [followListLoading, setFollowListLoading] = useState(false);
   const [sendingHi, setSendingHi] = useState({});
@@ -482,7 +508,7 @@ export default function ChatScreen({ dmTarget = null, onClose = null }) {
         room = created.data;
       }
       // Send "Hi" message
-      await chatAPI.sendMessage({ room_id: room.id, body: 'Hi 👋', content: 'Hi 👋' });
+      await chatAPI.sendMessage({ chat_room_id: room.id, body: 'Hi 👋', message_type: 'text' });
       // Open the room
       setShowNewMessage(false);
       setNewMsgSearch('');
@@ -518,9 +544,9 @@ export default function ChatScreen({ dmTarget = null, onClose = null }) {
 
     try {
       const res = await chatAPI.sendMessage({
-        room_id: activeRoom.id,
+        chat_room_id: activeRoom.id,
         body: text,
-        content: text,
+        message_type: 'text',
       });
       // Replace optimistic message with server response
       const serverMsg = res.data?.message || res.data;
@@ -584,19 +610,47 @@ export default function ChatScreen({ dmTarget = null, onClose = null }) {
 
   // ── Get room display info ──
   const getRoomDisplay = (room) => {
-    const name = room.name || room.room_name ||
-      room.other_user?.display_name || room.other_user?.username ||
-      'Unknown';
+    const isDM = (room?.name || '').startsWith('dm_');
+    let name, avatarUrl, otherId;
+
+    if (isDM) {
+      otherId = resolveOtherUserId(room);
+      const profile = otherId ? profileCache[otherId] : null;
+      // dmTarget passed in from ProfileScreen has the freshest info if we just opened them
+      const fromTarget = dmTarget?.user_id === otherId ? dmTarget : null;
+      name = profile?.display_name || profile?.username
+            || fromTarget?.display_name || fromTarget?.username
+            || 'Direct Message';
+      avatarUrl = profile?.avatar_url || fromTarget?.avatar_url || null;
+    } else {
+      name = room.name || room.room_name ||
+             room.other_user?.display_name || room.other_user?.username ||
+             'Group Chat';
+      avatarUrl = room.avatar_url || room.other_user?.avatar_url || null;
+      otherId = null;
+    }
+
     const isOnline = room.is_online ||
+      (otherId && onlineUsers.has(otherId)) ||
       (room.other_user?.id && onlineUsers.has(room.other_user.id)) ||
       false;
-    const avatarUrl = room.avatar_url || room.other_user?.avatar_url || null;
     const lastMsg = room.last_message || room.last_message_body || '';
     const lastTime = room.last_message_time || room.updated_at || room.created_at || '';
     const unread = room.unread_count || 0;
     const isGroup = room.is_group || room.type === 'group' || false;
-    return { name, isOnline, avatarUrl, lastMsg, lastTime, unread, isGroup };
+    return { name, isOnline, avatarUrl, lastMsg, lastTime, unread, isGroup, otherId };
   };
+
+  // Fetch profiles for all DM rooms whenever the rooms list or activeRoom changes
+  useEffect(() => {
+    const candidates = [];
+    if (activeRoom?.name?.startsWith?.('dm_')) candidates.push(activeRoom);
+    rooms.forEach((r) => { if (r?.name?.startsWith?.('dm_')) candidates.push(r); });
+    candidates.forEach((r) => {
+      const oid = resolveOtherUserId(r);
+      if (oid) ensureProfile(oid);
+    });
+  }, [rooms, activeRoom, resolveOtherUserId, ensureProfile]);
 
   // ════════════════════════════════════════════════════
   //  MESSAGE THREAD VIEW
@@ -675,12 +729,39 @@ export default function ChatScreen({ dmTarget = null, onClose = null }) {
               </Text>
             )}
 
-            <Text style={[
-              s.bubbleText,
-              { color: mine ? '#2C1810' : '#2C1810' },
-            ]}>
-              {msgBody}
-            </Text>
+            {/* Image / video attachment preview */}
+            {(() => {
+              const imgMatch = msgBody.match(/\[image\](\S+)/);
+              const vidMatch = msgBody.match(/\[video\](\S+)/);
+              const captionStripped = msgBody.replace(/\[(image|video)\]\S+/g, '').trim();
+              if (imgMatch) {
+                return (
+                  <>
+                    <Image
+                      source={{ uri: imgMatch[1] }}
+                      style={{ width: 220, height: 220, borderRadius: 8, borderWidth: 1.5, borderColor: '#2C1810', marginBottom: captionStripped ? 6 : 0 }}
+                      resizeMode="cover"
+                    />
+                    {captionStripped ? (
+                      <Text style={[s.bubbleText, { color: '#2C1810' }]}>{captionStripped}</Text>
+                    ) : null}
+                  </>
+                );
+              }
+              if (vidMatch) {
+                return (
+                  <View style={{ width: 220, height: 140, borderRadius: 8, borderWidth: 1.5, borderColor: '#2C1810', backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', marginBottom: captionStripped ? 6 : 0 }}>
+                    <Ionicons name="play-circle" size={48} color="#fff" />
+                    <Text style={{ color: '#fff', fontSize: 11, marginTop: 4 }}>video attachment</Text>
+                  </View>
+                );
+              }
+              return (
+                <Text style={[s.bubbleText, { color: '#2C1810' }]}>
+                  {msgBody}
+                </Text>
+              );
+            })()}
 
             <View style={s.bubbleMeta}>
               <Text style={[
@@ -747,10 +828,24 @@ export default function ChatScreen({ dmTarget = null, onClose = null }) {
           </TouchableOpacity>
 
           <View style={s.threadHeaderActions}>
-            <TouchableOpacity style={s.headerIconBtn}>
+            <TouchableOpacity
+              style={s.headerIconBtn}
+              onPress={() => Alert.alert(
+                'Voice call',
+                `Calling ${room.name}…\n\nLive voice calls land in the next build — your battles, brain map and chat work meanwhile.`,
+                [{ text: 'OK' }]
+              )}
+            >
               <Ionicons name="call-outline" size={22} color={theme.textSecondary} />
             </TouchableOpacity>
-            <TouchableOpacity style={s.headerIconBtn}>
+            <TouchableOpacity
+              style={s.headerIconBtn}
+              onPress={() => Alert.alert(
+                'Video call',
+                `Video duels with ${room.name} are coming soon. Stay tuned!`,
+                [{ text: 'OK' }]
+              )}
+            >
               <Ionicons name="videocam-outline" size={24} color={theme.textSecondary} />
             </TouchableOpacity>
           </View>
@@ -799,10 +894,91 @@ export default function ChatScreen({ dmTarget = null, onClose = null }) {
           </View>
         )}
 
+        {/* ── Emoji tray (toggleable) ── */}
+        {showEmojiTray && (
+          <View style={s.emojiTray}>
+            {['😀','😂','🤣','😊','😍','🥰','😎','🤔','😅','😢','😭','😡','🥳','🤯','😴','🤩',
+              '👍','👎','👏','🙏','💪','🎉','❤️','🔥','💯','✨','⚡','🌟','🚀','💡','🧠','📚']
+              .map((emo) => (
+                <TouchableOpacity
+                  key={emo}
+                  style={s.emojiCell}
+                  onPress={() => { setMessage((prev) => (prev || '') + emo); }}
+                >
+                  <Text style={{ fontSize: 24 }}>{emo}</Text>
+                </TouchableOpacity>
+              ))}
+          </View>
+        )}
+
         {/* ── Input Bar ── */}
         <View style={[s.inputBar, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-          <TouchableOpacity style={s.inputIconBtn}>
-            <Ionicons name="add-circle" size={28} color={theme.primary} />
+          <TouchableOpacity
+            style={s.inputIconBtn}
+            disabled={uploadingAttachment}
+            onPress={async () => {
+              try {
+                const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (perm.status !== 'granted') {
+                  Alert.alert('Permission needed', 'Allow photo access to send images.');
+                  return;
+                }
+                const result = await ImagePicker.launchImageLibraryAsync({
+                  mediaTypes: ImagePicker.MediaTypeOptions.All,
+                  allowsEditing: false,
+                  quality: 0.7,
+                  base64: true,
+                });
+                if (result.canceled || !result.assets?.[0]) return;
+                const asset = result.assets[0];
+
+                // Figure out extension + mime
+                const uri = asset.uri || '';
+                const dotIdx = uri.lastIndexOf('.');
+                const ext = (dotIdx >= 0 ? uri.slice(dotIdx + 1) : (asset.type === 'video' ? 'mp4' : 'jpg')).toLowerCase().split('?')[0].slice(0, 5);
+                const isVideo = asset.type === 'video' || ['mp4', 'mov', 'webm', 'avi'].includes(ext);
+                const mime = isVideo
+                  ? (ext === 'mov' ? 'video/quicktime' : 'video/mp4')
+                  : (ext === 'gif' ? 'image/gif' : ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg');
+
+                let base64 = asset.base64;
+                // Videos in expo-image-picker don't always include base64 — read from disk
+                if (!base64) {
+                  try {
+                    const FileSystem = require('expo-file-system/legacy');
+                    base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+                  } catch (readErr) {
+                    Alert.alert('Couldn\'t read file', 'Try a different file.');
+                    return;
+                  }
+                }
+
+                setUploadingAttachment(true);
+                try {
+                  const res = await chatAPI.uploadAttachment({
+                    base64,
+                    content_type: mime,
+                    ext,
+                  });
+                  const url = res.data?.url;
+                  if (!url) throw new Error('No URL returned');
+                  const tag = isVideo ? '[video]' : '[image]';
+                  setMessage((prev) => `${(prev || '').trim()} ${tag}${url}`.trim());
+                } catch (e) {
+                  Alert.alert('Upload failed', e?.response?.data?.detail || e?.message || 'Could not upload');
+                } finally {
+                  setUploadingAttachment(false);
+                }
+              } catch (e) {
+                Alert.alert('Picker error', e?.message || 'Could not open picker');
+              }
+            }}
+          >
+            {uploadingAttachment ? (
+              <ActivityIndicator size="small" color={theme.primary} />
+            ) : (
+              <Ionicons name="add-circle" size={28} color={theme.primary} />
+            )}
           </TouchableOpacity>
 
           <View style={[s.inputContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -814,18 +990,25 @@ export default function ChatScreen({ dmTarget = null, onClose = null }) {
               onChangeText={handleTextChange}
               multiline
               maxLength={5000}
+              onFocus={() => setShowEmojiTray(false)}
             />
-            <TouchableOpacity style={s.inputEmojiBtn}>
-              <Ionicons name="happy-outline" size={22} color={theme.textMuted} />
+            <TouchableOpacity
+              style={s.inputEmojiBtn}
+              onPress={() => setShowEmojiTray((v) => !v)}
+            >
+              <Ionicons name={showEmojiTray ? 'happy' : 'happy-outline'} size={22} color={showEmojiTray ? theme.primary : theme.textMuted} />
             </TouchableOpacity>
           </View>
 
           {message.trim() ? (
-            <TouchableOpacity onPress={handleSend} style={s.sendBtn}>
+            <TouchableOpacity onPress={() => { setShowEmojiTray(false); handleSend(); }} style={s.sendBtn}>
               <Ionicons name="arrow-up" size={20} color="#2C1810" />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={s.inputIconBtn}>
+            <TouchableOpacity
+              style={s.inputIconBtn}
+              onPress={() => Alert.alert('Voice messages', 'Tap-and-hold voice notes coming soon!')}
+            >
               <Ionicons name="mic" size={24} color={theme.textSecondary} />
             </TouchableOpacity>
           )}
@@ -1332,6 +1515,8 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 12,
     paddingBottom: 8,
+    flexGrow: 1,
+    justifyContent: 'flex-end',
   },
   messageRow: {
     flexDirection: 'row',
@@ -1438,12 +1623,28 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    paddingBottom: Platform.OS === 'ios' ? 30 : 10,
+    paddingTop: 6,
+    paddingBottom: Platform.OS === 'ios' ? 22 : 0,
     gap: 8,
     borderTopWidth: 1.5,
     borderTopColor: '#2C1810',
     backgroundColor: '#FDF6E3',
+  },
+  emojiTray: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#FFFCF2',
+    borderTopWidth: 1.5,
+    borderTopColor: '#2C1810',
+    maxHeight: 200,
+  },
+  emojiCell: {
+    width: '12.5%',   // 8 emojis per row
+    aspectRatio: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   inputIconBtn: {
     padding: 4,
@@ -1452,15 +1653,15 @@ const s = StyleSheet.create({
   inputContainer: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     borderWidth: 1.5,
     borderColor: '#2C1810',
     borderTopLeftRadius: 3,
     borderTopRightRadius: 16,
     borderBottomLeftRadius: 16,
     borderBottomRightRadius: 3,
-    paddingHorizontal: 14,
-    paddingVertical: Platform.OS === 'ios' ? 8 : 4,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 4 : 2,
     minHeight: 42,
     maxHeight: 120,
     backgroundColor: '#FFFCF2',

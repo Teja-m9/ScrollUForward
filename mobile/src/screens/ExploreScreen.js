@@ -335,6 +335,79 @@ export default function ExploreScreen({ navigation }) {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+        {/* ═══ FEATURES HUB ═══ */}
+        {!isSearchActive && (
+          <View style={s.featuresHub}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20, marginBottom: 12 }}>
+              <Ionicons name="sparkles" size={16} color="#7C3AED" />
+              <Text style={s.hubTitle}>Discover More</Text>
+              <View style={{ flex: 1, height: 1.5, backgroundColor: '#E6D5B8' }} />
+            </View>
+            <View style={s.featureGrid}>
+              {/* AI Study Buddy */}
+              <TouchableOpacity style={[s.featureCard, { borderColor: '#7C3AED' }]} activeOpacity={0.85} onPress={() => navigation.navigate('AIStudyBuddy')}>
+                <View style={[s.featureTape, { backgroundColor: '#7C3AED40' }]} />
+                <View style={[s.featureIconWrap, { backgroundColor: '#7C3AED15' }]}>
+                  <Ionicons name="sparkles" size={24} color="#7C3AED" />
+                </View>
+                <Text style={s.featureLabel}>AI Study</Text>
+                <Text style={s.featureLabel}>Buddy</Text>
+                <View style={[s.featureBadge, { backgroundColor: '#7C3AED' }]}>
+                  <Text style={s.featureBadgeText}>NEW</Text>
+                </View>
+                <Text style={s.featureDesc}>Personalized learning plans</Text>
+              </TouchableOpacity>
+
+              {/* Daily Challenge */}
+              <TouchableOpacity style={[s.featureCard, { borderColor: '#EA580C' }]} activeOpacity={0.85} onPress={() => navigation.navigate('DailyChallenge')}>
+                <View style={[s.featureTape, { backgroundColor: '#EA580C40' }]} />
+                <View style={[s.featureIconWrap, { backgroundColor: '#EA580C15' }]}>
+                  <Ionicons name="flame" size={24} color="#EA580C" />
+                </View>
+                <Text style={s.featureLabel}>Daily</Text>
+                <Text style={s.featureLabel}>Challenge</Text>
+                <View style={[s.featureBadge, { backgroundColor: '#EA580C' }]}>
+                  <Text style={s.featureBadgeText}>TODAY</Text>
+                </View>
+                <Text style={s.featureDesc}>Keep your streak alive</Text>
+              </TouchableOpacity>
+
+              {/* AI Flashcard Generator */}
+              <TouchableOpacity style={[s.featureCard, { borderColor: '#2563EB' }]} activeOpacity={0.85} onPress={() => navigation.navigate('Flashcards')}>
+                <View style={[s.featureTape, { backgroundColor: '#2563EB40' }]} />
+                <View style={[s.featureIconWrap, { backgroundColor: '#2563EB15' }]}>
+                  <Text style={{ fontSize: 26 }}>🎴</Text>
+                </View>
+                <Text style={s.featureLabel}>AI Flash</Text>
+                <Text style={s.featureLabel}>Cards</Text>
+                <View style={[s.featureBadge, { backgroundColor: '#2563EB' }]}>
+                  <Text style={s.featureBadgeText}>AI</Text>
+                </View>
+                <Text style={s.featureDesc}>Study any topic instantly</Text>
+              </TouchableOpacity>
+
+              {/* Live Map */}
+              <TouchableOpacity style={[s.featureCard, { borderColor: '#059669' }]} activeOpacity={0.85} onPress={() => navigation.navigate('LiveMap')}>
+                <View style={[s.featureTape, { backgroundColor: '#05966940' }]} />
+                <View style={[s.featureIconWrap, { backgroundColor: '#05966915' }]}>
+                  <Ionicons name="earth" size={24} color="#059669" />
+                </View>
+                <Text style={s.featureLabel}>Live</Text>
+                <Text style={s.featureLabel}>Map</Text>
+                <View style={[s.featureBadge, { backgroundColor: '#DC2626' }]}>
+                  <Text style={s.featureBadgeText}>LIVE</Text>
+                </View>
+                <Text style={s.featureDesc}>Where learners are now</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, marginTop: 12 }}>
+              <View style={{ width: 16, height: 2, backgroundColor: '#C4AA78', borderRadius: 1 }} />
+              <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#C4AA78' }} />
+              <View style={{ flex: 1, height: 1.5, backgroundColor: '#E6D5B8' }} />
+            </View>
+          </View>
+        )}
+
         {(loading || searching) && (
           <View style={{ paddingHorizontal: 16, marginTop: 20 }}>
             <SkeletonCard style={{ height: 200, marginBottom: 16 }} />
@@ -463,4 +536,36 @@ const s = StyleSheet.create({
   gridTitle: { fontSize: 13, fontWeight: '600', color: '#2C1810', lineHeight: 18, marginBottom: 6 },
   gridMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   gridMetaText: { fontSize: 11, color: '#8A7860' },
+
+  // ─── Features Hub ───
+  featuresHub: { marginTop: 8, marginBottom: 18 },
+  hubTitle: { fontSize: 13, fontWeight: '800', color: '#2C1810', letterSpacing: 1.5, textTransform: 'uppercase' },
+  featureGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, gap: 10 },
+  featureCard: {
+    width: (width - 44) / 2,
+    backgroundColor: '#FFFCF2',
+    borderWidth: 2,
+    borderTopLeftRadius: 4, borderTopRightRadius: 18, borderBottomLeftRadius: 18, borderBottomRightRadius: 4,
+    padding: 14, paddingTop: 20, position: 'relative',
+    ...Platform.select({
+      ios: { shadowColor: '#2C1810', shadowOffset: { width: 3, height: 3 }, shadowOpacity: 0.8, shadowRadius: 0 },
+      android: { elevation: 4 },
+    }),
+  },
+  featureTape: {
+    position: 'absolute', top: -6, alignSelf: 'center', width: 50, height: 12,
+    borderRadius: 1, transform: [{ rotate: '-2deg' }],
+  },
+  featureIconWrap: {
+    width: 48, height: 48, borderRadius: 24,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 8,
+  },
+  featureLabel: { fontSize: 16, fontWeight: '900', color: '#2C1810', letterSpacing: -0.5, lineHeight: 20 },
+  featureBadge: {
+    position: 'absolute', top: 10, right: 10,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+    transform: [{ rotate: '5deg' }],
+  },
+  featureBadgeText: { fontSize: 8, fontWeight: '900', color: '#fff', letterSpacing: 1 },
+  featureDesc: { fontSize: 10, color: '#8A7558', marginTop: 6, fontStyle: 'italic' },
 });

@@ -353,7 +353,23 @@ async def moderate_comment(body: str) -> dict:
     """
     Lightweight moderation for comments — text checks only.
     Returns {safe, violations, details}.
+
+    Stage 4: results are cached in Redis under sha256(body) for 7d so identical
+    re-posted text never re-hits OpenAI / Groq APIs.
     """
+    # Cache lookup (no-op when REDIS_URL unset)
+    cache_key = None
+    try:
+        import hashlib
+        from cache import cache_get_json, cache_set_json
+        cache_key = f"mod:comment:{hashlib.sha256((body or '').encode('utf-8')).hexdigest()}"
+        cached = await cache_get_json(cache_key)
+        if cached is not None:
+            cached["_cache"] = "HIT"
+            return cached
+    except Exception:
+        cache_key = None
+
     violations = []
     details = {}
 
@@ -369,8 +385,16 @@ async def moderate_comment(body: str) -> dict:
         violations.extend(text_result.get("violations", ["unsafe_text"]))
         details["text_safety"] = text_result
 
-    return {
+    result = {
         "safe": len(violations) == 0,
         "violations": violations,
         "details": details,
     }
+
+    if cache_key:
+        try:
+            await cache_set_json(cache_key, result, ttl=7 * 24 * 60 * 60)
+        except Exception:
+            pass
+
+    return result

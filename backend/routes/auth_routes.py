@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query as QueryParam
+from fastapi import APIRouter, HTTPException, Depends, Query as QueryParam, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from appwrite.query import Query
@@ -7,6 +7,7 @@ from auth import hash_password, verify_password, create_access_token, get_curren
 from appwrite_client import get_databases
 from schemas import RegisterRequest, LoginRequest, TokenResponse
 from config import APPWRITE_DATABASE_ID, COLLECTION_USERS, GOOGLE_CLIENT_ID_WEB, GOOGLE_CLIENT_ID_ANDROID, GOOGLE_CLIENT_SECRET
+from rate_limit import limiter
 import json, httpx, logging
 
 logger = logging.getLogger("scrolluforward")
@@ -15,7 +16,8 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(req: RegisterRequest):
+@limiter.limit("5/minute")
+async def register(request: Request, req: RegisterRequest):
     db = get_databases()
 
     # Check if user already exists
@@ -33,14 +35,13 @@ async def register(req: RegisterRequest):
         pass  # Collection might not exist yet
 
     # Create user document
-    user_id = ID.unique()
     hashed_pw = hash_password(req.password)
 
     try:
         user_doc = db.create_document(
             database_id=APPWRITE_DATABASE_ID,
             collection_id=COLLECTION_USERS,
-            document_id=user_id,
+            document_id=ID.unique(),
             data={
                 "username": req.username,
                 "email": req.email,
@@ -61,6 +62,7 @@ async def register(req: RegisterRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
 
+    user_id = user_doc["$id"]
     token = create_access_token(user_id, req.username)
     return TokenResponse(
         access_token=token,
@@ -70,7 +72,8 @@ async def register(req: RegisterRequest):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest):
+@limiter.limit("10/minute")
+async def login(request: Request, req: LoginRequest):
     db = get_databases()
 
     try:
@@ -227,7 +230,6 @@ async def google_auth(req: GoogleAuthRequest):
         logger.error(f"[GoogleAuth] DB lookup error: {e}")
 
     # User doesn't exist — create new account
-    user_id = ID.unique()
     username = email.split("@")[0].replace(".", "_").lower()[:20]
 
     # Ensure username is unique
@@ -243,10 +245,10 @@ async def google_auth(req: GoogleAuthRequest):
         pass
 
     try:
-        db.create_document(
+        new_doc = db.create_document(
             database_id=APPWRITE_DATABASE_ID,
             collection_id=COLLECTION_USERS,
-            document_id=user_id,
+            document_id=ID.unique(),
             data={
                 "username": username,
                 "email": email,
@@ -268,6 +270,7 @@ async def google_auth(req: GoogleAuthRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
 
+    user_id = new_doc["$id"]
     token = create_access_token(user_id, username)
     return TokenResponse(
         access_token=token,
@@ -338,14 +341,14 @@ async def google_callback(code: str = QueryParam(None), id_token: str = QueryPar
                             jwt_token = create_access_token(user["$id"], user["username"])
                             return RedirectResponse(url=f"scrolluforward://auth?token={jwt_token}&user_id={user['$id']}&username={user['username']}")
                         # Create new user
-                        user_id = ID.unique()
                         username = email.split("@")[0].replace(".", "_").lower()[:20]
-                        db.create_document(APPWRITE_DATABASE_ID, COLLECTION_USERS, document_id=user_id, data={
+                        new_doc = db.create_document(APPWRITE_DATABASE_ID, COLLECTION_USERS, document_id=ID.unique(), data={
                             "username": username, "email": email, "password_hash": "", "display_name": name or username,
                             "bio": "", "avatar_url": picture, "iq_score": 0, "knowledge_rank": "Novice",
                             "interest_tags": json.dumps([]), "followers_count": 0, "following_count": 0,
                             "posts_count": 0, "streak_days": 0, "badges": json.dumps(["google_user"]),
                         })
+                        user_id = new_doc["$id"]
                         jwt_token = create_access_token(user_id, username)
                         return RedirectResponse(url=f"scrolluforward://auth?token={jwt_token}&user_id={user_id}&username={username}")
         except Exception as e:
@@ -415,7 +418,6 @@ async def google_callback(code: str = QueryParam(None), id_token: str = QueryPar
         logger.error(f"[GoogleCallback] DB error: {e}")
 
     # Create new user
-    user_id = ID.unique()
     username = email.split("@")[0].replace(".", "_").lower()[:20]
 
     try:
@@ -430,10 +432,10 @@ async def google_callback(code: str = QueryParam(None), id_token: str = QueryPar
         pass
 
     try:
-        db.create_document(
+        new_doc = db.create_document(
             database_id=APPWRITE_DATABASE_ID,
             collection_id=COLLECTION_USERS,
-            document_id=user_id,
+            document_id=ID.unique(),
             data={
                 "username": username,
                 "email": email,
@@ -456,6 +458,7 @@ async def google_callback(code: str = QueryParam(None), id_token: str = QueryPar
         logger.error(f"[GoogleCallback] Create user failed: {e}")
         return RedirectResponse(url=f"scrolluforward://auth?error=create_failed")
 
+    user_id = new_doc["$id"]
     jwt_token = create_access_token(user_id, username)
     return RedirectResponse(
         url=f"scrolluforward://auth?token={jwt_token}&user_id={user_id}&username={username}"

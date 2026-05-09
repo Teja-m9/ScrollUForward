@@ -2,6 +2,9 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
+# Hard ceiling on user-supplied `limit` query params across the API
+MAX_PAGE = 100
+
 
 # ─── Auth ────────────────────────────────────────────────────
 class RegisterRequest(BaseModel):

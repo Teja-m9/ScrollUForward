@@ -11,6 +11,7 @@ import { contentAPI } from '../api';
 import { AuthContext } from '../../App';
 import { Tape, Stamp, DoodleDivider, PaperCorner, SketchSectionHeader } from '../components/SketchComponents';
 import { SkeletonCard, EmptyState, FadeInView } from '../components/AnimatedComponents';
+import { getCached, setCached } from '../utils/clientCache';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -341,12 +342,22 @@ export default function ArticlesScreen({ navigation }) {
   }, [searchQuery]);
 
   const fetchArticles = async () => {
-    setLoading(true);
+    const cacheKey = `articles:${selectedCategory}`;
+    // Stage 1: instant paint from cache
+    const cached = await getCached(cacheKey);
+    if (cached) {
+      setArticles(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    // Stage 2: background refresh
     try {
       const params = { content_type: 'article', limit: 20 };
       if (selectedCategory !== 'all') params.domain = selectedCategory;
       const res = await contentAPI.list(params);
       setArticles(res.data);
+      setCached(cacheKey, res.data || []).catch(() => {});
     } catch (e) { console.log('Failed to fetch articles', e); }
     finally { setLoading(false); setRefreshing(false); }
   };

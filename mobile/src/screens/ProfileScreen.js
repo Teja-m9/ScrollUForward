@@ -12,6 +12,7 @@ import { AuthContext, ThemeContext } from '../../App';
 import { DOMAIN_COLORS } from '../theme';
 import { FadeInView, EmptyState } from '../components/AnimatedComponents';
 import { AnimatedCounter, ProgressRing, PulseGlow, FloatingParticles } from '../components/PremiumAnimations';
+import { getCached, setCached, invalidateCached } from '../utils/clientCache';
 
 const { width } = Dimensions.get('window');
 const POST_SIZE = (width - 6) / 3;
@@ -48,22 +49,74 @@ export default function ProfileScreen({ route, navigation }) {
   const [selectedPost, setSelectedPost] = useState(null); // post popup modal
   const [deletingPost, setDeletingPost] = useState(null);
 
+  // Live stats from /users/{id}/stats
+  const [liveStats, setLiveStats] = useState(null);
+
   const isOwnProfile = !route?.params?.userId || route.params.userId === user?.user_id;
   const targetUserId = route?.params?.userId || user?.user_id;
 
-  useEffect(() => { loadProfile(); }, [targetUserId]);
   useEffect(() => {
-    if (activeTab === 'posts') fetchPosts();
-    if (activeTab === 'saved') fetchSaved();
+    if (!targetUserId) return;
+    // Stage 1: hydrate from cache for INSTANT paint
+    (async () => {
+      const [cachedProfile, cachedStats] = await Promise.all([
+        getCached(`profile:${targetUserId}`),
+        getCached(`stats:${targetUserId}`),
+      ]);
+      if (cachedProfile) setProfile(cachedProfile);
+      if (cachedStats) setLiveStats(cachedStats);
+      if (cachedProfile) setLoading(false);
+      // Stage 2: refresh in background
+      loadProfile();
+      fetchStats();
+    })();
+  }, [targetUserId]);
+
+  useEffect(() => {
+    if (!targetUserId) return;
+    if (activeTab === 'posts') {
+      // Cache hydrate then refresh
+      getCached(`posts:${targetUserId}`).then((cached) => {
+        if (cached) setPosts(cached);
+        fetchPosts();
+      });
+    }
+    if (activeTab === 'saved') {
+      getCached(`saved:${targetUserId}`).then((cached) => {
+        if (cached) setSavedPosts(cached);
+        fetchSaved();
+      });
+    }
     if (activeTab === 'chats') fetchDiscussionHistory();
   }, [activeTab, targetUserId]);
 
+  // Refresh live stats every 25s while screen is visible
+  useEffect(() => {
+    if (!targetUserId) return;
+    const t = setInterval(fetchStats, 25_000);
+    return () => clearInterval(t);
+  }, [targetUserId]);
+
+  const fetchStats = async () => {
+    if (!targetUserId) return;
+    try {
+      const res = await usersAPI.stats(targetUserId);
+      const stats = res.data || null;
+      setLiveStats(stats);
+      if (stats) setCached(`stats:${targetUserId}`, stats).catch(() => {});
+    } catch {
+      // leave stale stats — UI falls back to local computation
+    }
+  };
+
   const loadProfile = async () => {
-    setLoading(true);
+    // Don't show full-screen spinner if we already hydrated from cache
+    if (!profile) setLoading(true);
     try {
       if (targetUserId) {
         const res = await usersAPI.getProfile(targetUserId);
         setProfile(res.data);
+        if (res.data) setCached(`profile:${targetUserId}`, res.data).catch(() => {});
         // Restore saved profile image for own profile
         if (isOwnProfile) {
           const savedImg = await AsyncStorage.getItem('profile_image');
@@ -104,17 +157,30 @@ export default function ProfileScreen({ route, navigation }) {
   };
 
   const fetchPosts = async () => {
+    if (!targetUserId) return;
     try {
-      const res = await contentAPI.list({ limit: 50 });
-      const userPosts = (res.data || []).filter(p => p.author_id === targetUserId);
-      setPosts(userPosts);
-    } catch { setPosts([]); }
+      const res = await usersAPI.myPosts(targetUserId, 50);
+      const items = res.data || [];
+      setPosts(items);
+      setCached(`posts:${targetUserId}`, items).catch(() => {});
+    } catch {
+      try {
+        const res = await contentAPI.list({ limit: 50 });
+        const userPosts = (res.data || []).filter(
+          p => p.author_id === targetUserId && (p.content_type || '') !== 'story'
+        );
+        setPosts(userPosts);
+        setCached(`posts:${targetUserId}`, userPosts).catch(() => {});
+      } catch { setPosts([]); }
+    }
   };
 
   const fetchSaved = async () => {
     try {
       const res = await contentAPI.saved({ limit: 50 });
-      setSavedPosts(res.data || []);
+      const items = res.data || [];
+      setSavedPosts(items);
+      if (targetUserId) setCached(`saved:${targetUserId}`, items).catch(() => {});
     } catch {
       // Fallback to AsyncStorage if backend fails
       try {
@@ -213,26 +279,26 @@ export default function ProfileScreen({ route, navigation }) {
     setFollowListLoading(true);
     try {
       const res = type === 'followers'
-        ? await usersAPI.followers(targetUserId, 50)
-        : await usersAPI.following(targetUserId, 50);
-      // IDs come back, need to fetch profiles — use leaderboard as fallback
-      const ids = res.data?.follower_ids || res.data?.following_ids || [];
-      if (ids.length > 0) {
-        // Fetch each profile — batch by using leaderboard data
-        const lb = await usersAPI.leaderboard(100);
-        const allUsers = lb.data || [];
-        setFollowList(allUsers.filter(u => ids.includes(u.user_id)));
+        ? await usersAPI.followers(targetUserId, 200)
+        : await usersAPI.following(targetUserId, 200);
+      // New shape: { count, items: [profile, ...], follower_ids/following_ids }
+      const items = res.data?.items || [];
+      if (items.length > 0) {
+        setFollowList(items);
       } else {
-        setFollowList([]);
+        // Old-shape fallback: hydrate IDs via leaderboard
+        const ids = res.data?.follower_ids || res.data?.following_ids || [];
+        if (ids.length === 0) { setFollowList([]); }
+        else {
+          try {
+            const lb = await usersAPI.leaderboard(200);
+            const all = lb.data || [];
+            setFollowList(all.filter(u => ids.includes(u.user_id)));
+          } catch { setFollowList([]); }
+        }
       }
     } catch {
-      // fallback: leaderboard
-      try {
-        const res = await usersAPI.leaderboard(50);
-        const users = res.data || [];
-        const count = type === 'followers' ? (profile?.followers_count || 0) : (profile?.following_count || 0);
-        setFollowList(users.slice(0, count));
-      } catch { setFollowList([]); }
+      setFollowList([]);
     } finally { setFollowListLoading(false); }
   };
 
@@ -301,6 +367,18 @@ export default function ProfileScreen({ route, navigation }) {
         <Text style={s.headerTitle} numberOfLines={1}>{username ? `@${username}` : 'Profile'}</Text>
         {isOwnProfile ? (
           <View style={{ flexDirection: 'row', gap: 6 }}>
+            <TouchableOpacity
+              style={[s.headerBtn, { backgroundColor: '#C4B5FD', borderColor: '#2C1810', borderWidth: 2 }]}
+              onPress={() => navigation?.navigate('BrainMap')}
+            >
+              <Ionicons name="git-network" size={18} color="#2C1810" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.headerBtn, { backgroundColor: '#93C5FD', borderColor: '#2C1810', borderWidth: 2 }]}
+              onPress={() => navigation?.navigate('Map')}
+            >
+              <Ionicons name="map" size={18} color="#2C1810" />
+            </TouchableOpacity>
             <TouchableOpacity style={s.headerBtn} onPress={() => setShowSettings(true)}>
               <Ionicons name="settings-outline" size={22} color="#2C1810" />
             </TouchableOpacity>
@@ -422,54 +500,39 @@ export default function ProfileScreen({ route, navigation }) {
           {/* IQ score */}
           <View style={s.iqRow}>
             <Ionicons name="flash" size={13} color={ACCENT} />
-            <Text style={s.iqText}>{profile?.iq_score || 0} IQ Points</Text>
+            <Text style={s.iqText}>{liveStats?.iq_score ?? profile?.iq_score ?? 0} IQ Points</Text>
             <View style={s.iqDot} />
-            <Text style={s.iqText}>{profile?.badge || 'Newcomer'}</Text>
+            <Text style={s.iqText}>{liveStats?.rank || profile?.knowledge_rank || 'Novice'}</Text>
           </View>
 
-          {/* Streak & Daily Goal — notebook style */}
-          {isOwnProfile && (() => {
-            // Calculate streak: unique days the user posted
-            const uniqueDays = posts.length > 0
-              ? new Set(posts.map(p => p.created_at ? new Date(p.created_at).toDateString() : null).filter(Boolean)).size
-              : 0;
-            const streakValue = uniqueDays > 0 ? uniqueDays : (posts.length > 0 ? Math.min(posts.length, 30) : 1);
-
-            // Calculate daily goal percentage
-            const dailyGoalPct = Math.min(100, Math.round(((posts.length * 10) + (profile?.iq_score || 0)) / 5));
-
-            // Calculate rank based on IQ score
-            const iqScore = profile?.iq_score || 0;
-            const rankLabel = iqScore >= 5000 ? 'Genius' : iqScore >= 1000 ? 'Master' : iqScore >= 500 ? 'Expert' : iqScore >= 100 ? 'Scholar' : 'Novice';
-
-            return (
-            <View style={s.streakRow}>
-              <View style={s.streakCard}>
-                <View style={s.streakIconWrap}>
-                  <Ionicons name="flame" size={20} color="#D35400" />
-                </View>
-                <Text style={s.streakNum}>{streakValue}</Text>
-                <Text style={s.streakLabel}>Day Streak</Text>
+          {/* Streak / Daily Goal / Rank — sourced from /users/{id}/stats */}
+          <View style={s.streakRow}>
+            <View style={s.streakCard}>
+              <View style={s.streakIconWrap}>
+                <Ionicons name="flame" size={20} color="#D35400" />
               </View>
-              <View style={s.streakCard}>
-                <View style={s.dailyGoalWrap}>
-                  <View style={s.dailyGoalBg}>
-                    <View style={[s.dailyGoalFill, { width: `${dailyGoalPct}%` }]} />
-                  </View>
-                  <Text style={s.dailyGoalPct}>{dailyGoalPct}%</Text>
-                </View>
-                <Text style={s.streakLabel}>Daily Goal</Text>
-              </View>
-              <View style={s.streakCard}>
-                <View style={s.streakIconWrap}>
-                  <Ionicons name="trophy" size={20} color="#EA580C" />
-                </View>
-                <Text style={s.streakNum}>{rankLabel}</Text>
-                <Text style={s.streakLabel}>Rank</Text>
-              </View>
+              <Text style={s.streakNum}>{liveStats?.streak_days ?? 0}</Text>
+              <Text style={s.streakLabel}>Day Streak</Text>
             </View>
-            );
-          })()}
+            <View style={s.streakCard}>
+              <View style={s.dailyGoalWrap}>
+                <View style={s.dailyGoalBg}>
+                  <View style={[s.dailyGoalFill, { width: `${liveStats?.daily_goal_pct ?? 0}%` }]} />
+                </View>
+                <Text style={s.dailyGoalPct}>{liveStats?.daily_goal_pct ?? 0}%</Text>
+              </View>
+              <Text style={s.streakLabel}>
+                Daily Goal · {liveStats?.today_actions ?? 0}/{liveStats?.daily_goal_target ?? 10}
+              </Text>
+            </View>
+            <View style={s.streakCard}>
+              <View style={s.streakIconWrap}>
+                <Ionicons name="trophy" size={20} color="#EA580C" />
+              </View>
+              <Text style={s.streakNum}>{liveStats?.rank || 'Novice'}</Text>
+              <Text style={s.streakLabel}>Rank</Text>
+            </View>
+          </View>
         </View>
 
         {/* Message + Share buttons (for other profiles) */}
@@ -582,13 +645,47 @@ export default function ProfileScreen({ route, navigation }) {
           </View>
         )}
 
-        {activeTab === 'badges' && (
-          <View style={s.emptyBox}>
-            <Ionicons name="medal-outline" size={40} color="#333" />
-            <Text style={s.emptyText}>No badges earned yet</Text>
-            <Text style={{ color: '#8A7860', fontSize: 12, marginTop: 4 }}>Keep scrolling to earn badges!</Text>
-          </View>
-        )}
+        {activeTab === 'badges' && (() => {
+          const earned = liveStats?.badges || [];
+          if (earned.length === 0) {
+            return (
+              <View style={s.emptyBox}>
+                <Ionicons name="medal-outline" size={40} color="#333" />
+                <Text style={s.emptyText}>No badges yet</Text>
+                <Text style={{ color: '#8A7860', fontSize: 12, marginTop: 4 }}>
+                  Read, react, post, take quizzes — they unlock automatically.
+                </Text>
+              </View>
+            );
+          }
+          return (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, paddingTop: 10, gap: 12, justifyContent: 'center' }}>
+              {earned.map((b, i) => (
+                <View key={b.key || i} style={{
+                  width: '30%',
+                  alignItems: 'center',
+                  backgroundColor: '#FFFCF2',
+                  borderWidth: 2, borderColor: '#2C1810',
+                  borderTopLeftRadius: 4, borderTopRightRadius: 14,
+                  borderBottomLeftRadius: 14, borderBottomRightRadius: 4,
+                  paddingVertical: 14, paddingHorizontal: 6,
+                }}>
+                  <View style={{
+                    width: 44, height: 44, borderRadius: 22,
+                    backgroundColor: ACCENT + '33',
+                    borderWidth: 1.5, borderColor: ACCENT,
+                    justifyContent: 'center', alignItems: 'center',
+                  }}>
+                    <Ionicons name={b.icon || 'medal-outline'} size={22} color="#D35400" />
+                  </View>
+                  <Text style={{ marginTop: 6, fontWeight: '900', fontSize: 11, color: '#2C1810', textAlign: 'center' }} numberOfLines={2}>
+                    {b.label}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          );
+        })()}
       </ScrollView>
 
       {/* ── Fullscreen Photo Modal ── */}
